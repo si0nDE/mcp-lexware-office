@@ -2,8 +2,32 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest } from './helper.js';
+import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest, makeLexwareOfficeWriteRequest } from './helper.js';
 import { logger } from './logger.js';
+
+const contactPersonSchema = z.object({
+	salutation: z.string().optional(),
+	firstName: z.string().optional(),
+	lastName: z.string(),
+	emailAddress: z.string().optional(),
+	phoneNumber: z.string().optional(),
+});
+
+const addressEntrySchema = z.object({
+	street: z.string().optional(),
+	zip: z.string().optional(),
+	city: z.string().optional(),
+	countryCode: z.string().length(2).optional(),
+	supplement: z.string().optional(),
+});
+
+function writeErrorResponse(result: { status: number; error: unknown } | null): string {
+	if (!result) return 'Request failed due to a network or server error.';
+	if (result.status === 404) return 'Record not found.';
+	if (result.status === 409) return 'Version conflict — please re-fetch the record and try again.';
+	if (result.status === 401 || result.status === 403) return 'Authentication or permission error.';
+	return `API error (${result.status}): ${JSON.stringify(result.error, null, 2)}`;
+}
 
 const server = new McpServer({
 	name: 'lexware-office',
@@ -437,6 +461,152 @@ server.tool(
 				{
 					type: 'text',
 					text: `Payment conditions:\n\n${JSON.stringify(data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'create-contact',
+	'Create a new contact (customer or vendor) in Lexware Office.',
+	{
+		roles: z
+			.object({
+				customer: z.object({}).optional().describe('Include to assign the customer role'),
+				vendor: z.object({}).optional().describe('Include to assign the vendor role'),
+			})
+			.optional(),
+		company: z
+			.object({
+				name: z.string(),
+				taxNumber: z.string().optional(),
+				vatRegistrationId: z.string().optional(),
+				contactPersons: z.array(contactPersonSchema).optional(),
+			})
+			.optional()
+			.describe('Company details — provide either company or person, not both'),
+		person: z
+			.object({
+				salutation: z.string().optional(),
+				firstName: z.string().optional(),
+				lastName: z.string(),
+			})
+			.optional()
+			.describe('Person details — provide either company or person, not both'),
+		addresses: z
+			.object({
+				billing: z.array(addressEntrySchema).optional(),
+				shipping: z.array(addressEntrySchema).optional(),
+			})
+			.optional(),
+		emailAddresses: z
+			.object({
+				business: z.array(z.string()).optional(),
+				office: z.array(z.string()).optional(),
+				private: z.array(z.string()).optional(),
+				other: z.array(z.string()).optional(),
+			})
+			.optional(),
+		phoneNumbers: z
+			.object({
+				business: z.array(z.string()).optional(),
+				office: z.array(z.string()).optional(),
+				mobile: z.array(z.string()).optional(),
+				private: z.array(z.string()).optional(),
+				fax: z.array(z.string()).optional(),
+				other: z.array(z.string()).optional(),
+			})
+			.optional(),
+		note: z.string().optional(),
+	},
+	async (params) => {
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/contacts', 'POST', params);
+
+		if (!result || !result.ok) {
+			return {
+				content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }],
+			};
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Contact created successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'update-contact',
+	'Update an existing contact in Lexware Office. Requires the current version number for optimistic locking (get it from get-contacts).',
+	{
+		id: z.string().uuid().describe('The ID of the contact to update'),
+		version: z.number().int().describe('Current version of the contact (for optimistic locking)'),
+		roles: z
+			.object({
+				customer: z.object({}).optional(),
+				vendor: z.object({}).optional(),
+			})
+			.optional(),
+		company: z
+			.object({
+				name: z.string(),
+				taxNumber: z.string().optional(),
+				vatRegistrationId: z.string().optional(),
+				contactPersons: z.array(contactPersonSchema).optional(),
+			})
+			.optional(),
+		person: z
+			.object({
+				salutation: z.string().optional(),
+				firstName: z.string().optional(),
+				lastName: z.string(),
+			})
+			.optional(),
+		addresses: z
+			.object({
+				billing: z.array(addressEntrySchema).optional(),
+				shipping: z.array(addressEntrySchema).optional(),
+			})
+			.optional(),
+		emailAddresses: z
+			.object({
+				business: z.array(z.string()).optional(),
+				office: z.array(z.string()).optional(),
+				private: z.array(z.string()).optional(),
+				other: z.array(z.string()).optional(),
+			})
+			.optional(),
+		phoneNumbers: z
+			.object({
+				business: z.array(z.string()).optional(),
+				office: z.array(z.string()).optional(),
+				mobile: z.array(z.string()).optional(),
+				private: z.array(z.string()).optional(),
+				fax: z.array(z.string()).optional(),
+				other: z.array(z.string()).optional(),
+			})
+			.optional(),
+		note: z.string().optional(),
+	},
+	async ({ id, ...body }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', body);
+
+		if (!result || !result.ok) {
+			return {
+				content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }],
+			};
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Contact updated successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
 				},
 			],
 		};
