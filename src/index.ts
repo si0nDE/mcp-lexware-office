@@ -393,6 +393,56 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-payments',
+	'Get payment information for an invoice or voucher from Lexware Office. Returns payment history including amounts, dates, and payment method.',
+	{
+		id: z.string().uuid().describe('The ID of the invoice or voucher to retrieve payment information for'),
+	},
+	async ({ id }) => {
+		const paymentsData = await makeLexwareOfficeRequest<any>(`/v1/payments?openItemId=${id}`);
+
+		if (!paymentsData) {
+			return {
+				content: [{ type: 'text', text: 'Failed to retrieve payment information' }],
+			};
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Payment information:\n\n${JSON.stringify(paymentsData, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'get-payment-conditions',
+	'Retrieve available payment conditions (Zahlungsbedingungen) from Lexware Office. Use these as reference when creating invoices.',
+	{},
+	async () => {
+		const data = await makeLexwareOfficeRequest<any>('/v1/payment-conditions');
+
+		if (!data) {
+			return {
+				content: [{ type: 'text', text: 'Failed to retrieve payment conditions' }],
+			};
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Payment conditions:\n\n${JSON.stringify(data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
