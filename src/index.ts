@@ -525,7 +525,7 @@ server.tool(
 
 		if (!result || !result.ok) {
 			return {
-				content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }],
+				content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }],
 			};
 		}
 
@@ -598,7 +598,7 @@ server.tool(
 
 		if (!result || !result.ok) {
 			return {
-				content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }],
+				content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }],
 			};
 		}
 
@@ -669,7 +669,7 @@ const invoiceSchema = {
 };
 
 async function handleInvoiceRequest(
-	params: any,
+	params: Record<string, unknown>,
 	finalize: boolean,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
 	const path = finalize ? '/v1/invoices?finalize=true' : '/v1/invoices';
@@ -680,7 +680,7 @@ async function handleInvoiceRequest(
 	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
 
 	if (!result || !result.ok) {
-		return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
 	}
 
 	const action = finalize ? 'created and finalized' : 'created as draft';
@@ -724,7 +724,7 @@ const dunningSchema = {
 };
 
 async function handleDunningRequest(
-	params: any,
+	params: Record<string, unknown>,
 	finalize: boolean,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
 	const path = finalize ? '/v1/dunnings?finalize=true' : '/v1/dunnings';
@@ -735,7 +735,7 @@ async function handleDunningRequest(
 	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
 
 	if (!result || !result.ok) {
-		return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
 	}
 
 	const action = finalize ? 'created and finalized' : 'created as draft';
@@ -795,7 +795,7 @@ server.tool(
 		const result = await makeLexwareOfficeWriteRequest<any>('/v1/vouchers', 'POST', params);
 
 		if (!result || !result.ok) {
-			return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
 		}
 
 		return {
@@ -836,7 +836,7 @@ server.tool(
 		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/vouchers/${id}`, 'PUT', body);
 
 		if (!result || !result.ok) {
-			return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
 		}
 
 		return {
