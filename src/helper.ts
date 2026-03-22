@@ -35,3 +35,33 @@ export async function makeLexwareOfficeRequest<T>(path: string): Promise<T | nul
 		return null;
 	}
 }
+
+export async function makeLexwareOfficeFileRequest(
+	path: string,
+	accept: 'application/pdf' | 'application/xml',
+): Promise<{ data: Buffer; mimeType: string } | null> {
+	const url = `${LEXOFFICE_API_BASE}${path}`;
+	const headers = {
+		'User-Agent': USER_AGENT,
+		Accept: accept,
+		Authorization: `Bearer ${LEXWARE_OFFICE_API_KEY}`,
+	};
+
+	logger.log('Making Lexware Office file request', { url });
+
+	try {
+		const response = await fetch(url, { headers });
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+		const contentType = response.headers.get('Content-Type') ?? accept;
+		const mimeType = contentType.split(';')[0].trim();
+		const arrayBuffer = await response.arrayBuffer();
+		const data = Buffer.from(arrayBuffer);
+		logger.log('Lexware Office file response received', { mimeType, bytes: data.length });
+		return { data, mimeType };
+	} catch (error) {
+		logger.error('Error making Lexware Office file request', { error });
+		return null;
+	}
+}
