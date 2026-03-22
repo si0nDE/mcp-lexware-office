@@ -262,6 +262,96 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-vouchers',
+	'Get a list of bookkeeping vouchers (Eingangsbelege/Ausgangsbelege) from Lexware Office. Voucher types: purchaseinvoice (Ausgaben), purchasecreditnote (Ausgabenminderung), salesinvoice (Einnahmen), salescreditnote (Einnahmenminderung).',
+	{
+		voucherType: z
+			.array(
+				z.enum(['purchaseinvoice', 'purchasecreditnote', 'salesinvoice', 'salescreditnote']),
+			)
+			.optional()
+			.default(['purchaseinvoice', 'purchasecreditnote', 'salesinvoice', 'salescreditnote'])
+			.describe('Filter by voucher type'),
+		voucherStatus: z
+			.array(
+				z.enum(['unchecked', 'open', 'paid', 'paidoff', 'voided', 'transferred', 'sepadebit']),
+			)
+			.optional()
+			.default(['unchecked', 'open', 'paid', 'paidoff', 'voided', 'transferred', 'sepadebit'])
+			.describe('Filter by voucher status'),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z
+			.number()
+			.min(1)
+			.max(250)
+			.optional()
+			.default(250)
+			.describe('number of vouchers to retrieve per page'),
+	},
+	async ({ voucherType, voucherStatus, page, size }) => {
+		const voucherlistUrl = `/v1/voucherlist?voucherType=${voucherType.join(',')}&voucherStatus=${voucherStatus.join(',')}&page=${page}&size=${size}`;
+		const voucherlistData = await makeLexwareOfficeRequest<any>(voucherlistUrl);
+		const vouchers = voucherlistData?.content;
+
+		if (!vouchers || vouchers.length === 0) {
+			return {
+				content: [
+					{
+						type: 'text',
+						text: 'No vouchers found',
+					},
+				],
+			};
+		}
+
+		const response = `There are ${voucherlistData.totalElements} vouchers in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`;
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: response,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'get-voucher-details',
+	'Get details of a bookkeeping voucher from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The id of the voucher'),
+	},
+	async ({ id }) => {
+		const voucherUrl = `/v1/vouchers/${id}`;
+		const voucherData = await makeLexwareOfficeRequest<any>(voucherUrl);
+
+		if (!voucherData) {
+			return {
+				content: [
+					{
+						type: 'text',
+						text: 'Failed to retrieve voucher data',
+					},
+				],
+			};
+		}
+
+		const response = `Voucher details:\n\n${JSON.stringify(voucherData, null, 2)}`;
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: response,
+				},
+			],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
