@@ -52,6 +52,13 @@ The following tools are available through this MCP server:
   - Inputs:
     - `id` (string): The UUID of the voucher
 
+- **get-file**
+
+  - Download a file (PDF or XML) from Lexware Office by file ID
+  - Inputs:
+    - `id` (string): The UUID of the file (from `files.documentFileId` in voucher or invoice details)
+    - `format` (string, optional): File format to download ("pdf" or "xml"). Default: "pdf". Note: XML (XRechnung) is only available for specific invoice types.
+
 - **list-posting-categories**
 
   - Retrieve list of posting categories for bookkeeping vouchers
