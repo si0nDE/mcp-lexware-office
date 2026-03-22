@@ -5,70 +5,53 @@ An MCP server implementation that integrates with Lexware Office (formerly known
 ## Features
 
 - **Lexware Office Integration**: Direct integration with the Lexware Office API
-- **Business Operations**: Manage invoices, contacts, and other business documents (read-only as of now)
+- **Business Operations**: Manage invoices, contacts, vouchers, and other business documents
 
 ## Tools
 
 The following tools are available through this MCP server:
 
-- **get-invoices**
+| Tool | Description | API |
+|---|---|---|
+| `get-invoices` | Get a list of invoices from Lexware Office | `GET /v1/invoices` |
+| `get-invoice-details` | Get details of a specific invoice | `GET /v1/invoices/{id}` |
+| `get-contacts` | Get contacts with optional filters | `GET /v1/contacts` |
+| `get-vouchers` | Get a list of bookkeeping vouchers | `GET /v1/voucherlist` |
+| `get-voucher-details` | Get details of a specific bookkeeping voucher | `GET /v1/vouchers/{id}` |
+| `get-file` | Download a file (PDF or XML) by file ID | `GET /v1/files/{id}` |
+| `list-posting-categories` | List posting categories for bookkeeping vouchers | `GET /v1/posting-categories` |
+| `list-countries` | List countries with their tax classifications | `GET /v1/countries` |
+| `get-payments` | Get payment information for an invoice or voucher | `GET /v1/payments` |
+| `get-payment-conditions` | List available payment conditions (Zahlungsbedingungen) | `GET /v1/payment-conditions` |
+| `create-contact` | Create a new contact (customer or vendor) | `POST /v1/contacts` |
+| `update-contact` | Update an existing contact | `PUT /v1/contacts/{id}` |
+| `create-invoice` | Create an invoice as a draft | `POST /v1/invoices` |
+| `finalize-invoice` | Create and immediately finalize an invoice | `POST /v1/invoices?finalize=true` |
+| `create-dunning` | Create a dunning notice (Mahnung) as a draft | `POST /v1/dunnings` |
+| `finalize-dunning` | Create and immediately finalize a dunning notice | `POST /v1/dunnings?finalize=true` |
+| `create-voucher` | Create a bookkeeping voucher (Buchungsbeleg) | `POST /v1/vouchers` |
+| `update-voucher` | Update an existing bookkeeping voucher | `PUT /v1/vouchers/{id}` |
 
-  - Get a list of invoices from Lexware Office
-  - Inputs:
-    - `status` (array of strings, optional): Filter by invoice status ("open", "draft", "paid", "paidoff", "voided"). Default: all statuses
-    - `page` (number, optional): Page number to retrieve (starts at 0). Default: 0
-    - `size` (number, optional): Number of invoices per page (1-250). Default: 250
+## Permission Model
 
-- **get-invoice-details**
+Tools are grouped into three tiers. You can restrict access by disabling tools in your Claude/MCP configuration:
 
-  - Get details of an invoice from Lexware Office
-  - Inputs:
-    - `id` (string): The UUID of the invoice
+| Tier | Allowed | Disable these tools |
+|---|---|---|
+| Read-only | All `get-*` and `list-*` tools | `create-*`, `update-*`, `finalize-*` |
+| Draft mode | + create/update tools | `finalize-invoice`, `finalize-dunning` |
+| Full access | All tools | _(nothing)_ |
 
-- **get-contacts**
-
-  - Get contacts from Lexware Office with optional filters that are combined with a logical AND
-  - Inputs:
-    - `email` (string, optional): Filter contacts by email address (supports wildcards)
-    - `name` (string, optional): Filter contacts by name (supports wildcards)
-    - `number` (number, optional): Filter contacts by contact number
-    - `customer` (boolean, optional): Filter contacts by customer role
-    - `vendor` (boolean, optional): Filter contacts by vendor role
-    - `page` (number, optional): Page number to retrieve (starts at 0). Default: 0
-    - `size` (number, optional): Number of contacts per page (1-250). Default: 250
-
-- **get-vouchers**
-
-  - Get a list of bookkeeping vouchers (Eingangsbelege/Ausgangsbelege) from Lexware Office
-  - Inputs:
-    - `voucherType` (array of strings, optional): Filter by voucher type ("purchaseinvoice", "purchasecreditnote", "salesinvoice", "salescreditnote"). Default: all types
-    - `voucherStatus` (array of strings, optional): Filter by voucher status ("unchecked", "open", "paid", "paidoff", "voided", "transferred", "sepadebit"). Default: all statuses
-    - `page` (number, optional): Page number to retrieve (starts at 0). Default: 0
-    - `size` (number, optional): Number of vouchers per page (1-250). Default: 250
-
-- **get-voucher-details**
-
-  - Get details of a bookkeeping voucher from Lexware Office
-  - Inputs:
-    - `id` (string): The UUID of the voucher
-
-- **get-file**
-
-  - Download a file (PDF or XML) from Lexware Office by file ID
-  - Inputs:
-    - `id` (string): The UUID of the file (from `files.documentFileId` in voucher or invoice details)
-    - `format` (string, optional): File format to download ("pdf" or "xml"). Default: "pdf". Note: XML (XRechnung) is only available for specific invoice types.
-
-- **list-posting-categories**
-
-  - Retrieve list of posting categories for bookkeeping vouchers
-  - Inputs:
-    - `type` (string, optional): Filter posting categories by type ("income" or "outgo")
-
-- **list-countries**
-  - Retrieve list of countries known to lexoffice with their tax classifications
-  - Inputs:
-    - `taxClassification` (string, optional): Filter countries by tax classification ("de" for Germany, "intraCommunity" for EU countries, or "thirdPartyCountry" for non-EU countries)
+Example (draft mode — no finalization):
+```json
+{
+  "mcpServers": {
+    "lexware-office": {
+      "disabledTools": ["finalize-invoice", "finalize-dunning"]
+    }
+  }
+}
+```
 
 ## Configuration
 
