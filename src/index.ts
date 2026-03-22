@@ -763,6 +763,93 @@ server.tool(
 	async (params) => handleDunningRequest(params, true),
 );
 
+server.tool(
+	'create-voucher',
+	'Create a new bookkeeping voucher (Buchungsbeleg) in Lexware Office, e.g. an incoming invoice (Eingangsrechnung). Use list-posting-categories to find valid categoryId values.',
+	{
+		type: z
+			.enum(['purchaseinvoice', 'purchasecreditnote', 'salesinvoice', 'salescreditnote'])
+			.describe(
+				'Voucher type: purchaseinvoice (Eingangsrechnung), purchasecreditnote (Eingangsgutschrift), salesinvoice (Ausgangsrechnung), salescreditnote (Ausgangsgutschrift)',
+			),
+		voucherDate: z.string().describe('Voucher date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+		dueDate: z.string().optional().describe('Due date in ISO 8601 format'),
+		supplierQuoteNumber: z.string().optional().describe('External invoice number from the supplier'),
+		contactId: z.string().uuid().optional().describe('Reference to an existing contact (Lieferant/Kunde)'),
+		remark: z.string().optional().describe('Internal note'),
+		voucherItems: z
+			.array(
+				z.object({
+					amount: z.string().describe('Gross amount as string, e.g. "119.00"'),
+					taxAmount: z.string().describe('Tax amount as string, e.g. "19.00"'),
+					taxRatePercent: z.number().describe('Tax rate: 0, 7, or 19'),
+					categoryId: z
+						.string()
+						.uuid()
+						.describe('Posting category ID from list-posting-categories'),
+				}),
+			)
+			.min(1),
+	},
+	async (params) => {
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/vouchers', 'POST', params);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Voucher created successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'update-voucher',
+	'Update an existing bookkeeping voucher in Lexware Office. Requires the current version number (get it from get-voucher-details). All fields from create-voucher are required.',
+	{
+		id: z.string().uuid().describe('The ID of the voucher to update'),
+		version: z.number().int().describe('Current version of the voucher (for optimistic locking)'),
+		type: z.enum(['purchaseinvoice', 'purchasecreditnote', 'salesinvoice', 'salescreditnote']),
+		voucherDate: z.string().describe('Voucher date in ISO 8601 format'),
+		dueDate: z.string().optional(),
+		supplierQuoteNumber: z.string().optional(),
+		contactId: z.string().uuid().optional(),
+		remark: z.string().optional(),
+		voucherItems: z
+			.array(
+				z.object({
+					amount: z.string().describe('Gross amount as string, e.g. "119.00"'),
+					taxAmount: z.string().describe('Tax amount as string, e.g. "19.00"'),
+					taxRatePercent: z.number(),
+					categoryId: z.string().uuid(),
+				}),
+			)
+			.min(1),
+	},
+	async ({ id, ...body }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/vouchers/${id}`, 'PUT', body);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Voucher updated successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
