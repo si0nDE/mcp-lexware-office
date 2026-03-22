@@ -613,6 +613,101 @@ server.tool(
 	},
 );
 
+const lineItemSchema = z.discriminatedUnion('type', [
+	z.object({
+		type: z.enum(['material', 'service', 'custom']),
+		name: z.string().describe('Line item description'),
+		quantity: z.number().describe('Quantity'),
+		unitName: z.string().describe('Unit name, e.g. "Stunden", "Stück"'),
+		unitPrice: z.object({
+			currency: z.literal('EUR'),
+			netAmount: z.string().describe('Net amount as string, e.g. "9.99"'),
+			taxRatePercentage: z.number().describe('Tax rate, e.g. 19 for 19%'),
+		}),
+		discountPercentage: z.number().min(0).max(100).optional(),
+	}),
+	z.object({
+		type: z.literal('text'),
+		name: z.string().describe('Free text line (no price or quantity)'),
+	}),
+]);
+
+const invoiceAddressSchema = z.union([
+	z.object({
+		contactId: z.string().uuid().describe('Reference to an existing contact'),
+	}),
+	z.object({
+		name: z.string(),
+		street: z.string().optional(),
+		zip: z.string().optional(),
+		city: z.string().optional(),
+		countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2, e.g. "DE"'),
+	}),
+]);
+
+const invoiceSchema = {
+	voucherDate: z.string().describe('Invoice date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+	address: invoiceAddressSchema,
+	lineItems: z.array(lineItemSchema).min(1),
+	taxConditions: z.object({
+		taxType: z.enum(['net', 'gross', 'vatfree']).describe('"net" = Netto, "gross" = Brutto, "vatfree" = steuerfrei'),
+	}),
+	paymentConditions: z
+		.object({
+			paymentTermLabelLanguage: z.enum(['de', 'en']).optional(),
+			paymentTermDuration: z.number().int().describe('Payment term in days'),
+			paymentDiscountConditions: z
+				.object({
+					discountPercentage: z.number(),
+					discountRange: z.number().int().describe('Days within which discount applies'),
+				})
+				.optional(),
+		})
+		.optional(),
+	introduction: z.string().optional().describe('Introductory text before line items'),
+	remark: z.string().optional().describe('Closing text after line items'),
+};
+
+async function handleInvoiceRequest(
+	params: any,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/invoices?finalize=true' : '/v1/invoices';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Invoice ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-invoice',
+	'Create a new invoice as a draft in Lexware Office. The invoice will not be sent to the customer. Use finalize-invoice to create and immediately finalize.',
+	invoiceSchema,
+	async (params) => handleInvoiceRequest(params, false),
+);
+
+server.tool(
+	'finalize-invoice',
+	'Create and immediately finalize (publish) an invoice in Lexware Office. The invoice will be locked and cannot be edited. Use create-invoice to create a draft first.',
+	invoiceSchema,
+	async (params) => handleInvoiceRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
