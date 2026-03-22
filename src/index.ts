@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { makeLexwareOfficeRequest } from './helper.js';
+import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest } from './helper.js';
 import { logger } from './logger.js';
 
 const server = new McpServer({
@@ -346,6 +346,47 @@ server.tool(
 				{
 					type: 'text',
 					text: response,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'get-file',
+	'Download a file (PDF or XML) from Lexware Office by its file ID. File IDs are found in the \'files.documentFileId\' field of voucher or invoice details.',
+	{
+		id: z.string().uuid().describe('The file ID from the files.documentFileId field in voucher or invoice details'),
+		format: z
+			.enum(['pdf', 'xml'])
+			.optional()
+			.default('pdf')
+			.describe("File format to download: 'pdf' (default) or 'xml' (XRechnung, only available for specific invoice types)."),
+	},
+	async ({ id, format }) => {
+		const accept = format === 'xml' ? 'application/xml' : 'application/pdf';
+		const fileData = await makeLexwareOfficeFileRequest(`/v1/files/${id}`, accept);
+
+		if (!fileData) {
+			return {
+				content: [
+					{
+						type: 'text',
+						text: 'Failed to retrieve file',
+					},
+				],
+			};
+		}
+
+		return {
+			content: [
+				{
+					type: 'resource',
+					resource: {
+						uri: `lexware://files/${id}`,
+						mimeType: fileData.mimeType,
+						blob: fileData.data.toString('base64'),
+					},
 				},
 			],
 		};
