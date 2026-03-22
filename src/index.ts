@@ -708,6 +708,61 @@ server.tool(
 	async (params) => handleInvoiceRequest(params, true),
 );
 
+const dunningSchema = {
+	precedingSalesVoucherId: z
+		.string()
+		.uuid()
+		.describe('ID of the invoice this dunning is for (from get-invoices or get-invoice-details)'),
+	voucherDate: z.string().describe('Dunning date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+	address: invoiceAddressSchema,
+	lineItems: z.array(lineItemSchema).min(1),
+	taxConditions: z.object({
+		taxType: z.enum(['net', 'gross', 'vatfree']),
+	}),
+	introduction: z.string().optional(),
+	remark: z.string().optional(),
+};
+
+async function handleDunningRequest(
+	params: any,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/dunnings?finalize=true' : '/v1/dunnings';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result ? { status: result.status, error: result.error } : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Dunning ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-dunning',
+	'Create a dunning notice (Mahnung) as a draft in Lexware Office for an existing invoice. Use finalize-dunning to create and immediately finalize.',
+	dunningSchema,
+	async (params) => handleDunningRequest(params, false),
+);
+
+server.tool(
+	'finalize-dunning',
+	'Create and immediately finalize a dunning notice (Mahnung) in Lexware Office for an existing invoice. The dunning will be locked and cannot be edited.',
+	dunningSchema,
+	async (params) => handleDunningRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
