@@ -37,6 +37,28 @@ The following tools are available through this MCP server:
     - `page` (number, optional): Page number to retrieve (starts at 0). Default: 0
     - `size` (number, optional): Number of contacts per page (1-250). Default: 250
 
+- **get-vouchers**
+
+  - Get a list of bookkeeping vouchers (Eingangsbelege/Ausgangsbelege) from Lexware Office
+  - Inputs:
+    - `voucherType` (array of strings, optional): Filter by voucher type ("purchaseinvoice", "purchasecreditnote", "salesinvoice", "salescreditnote"). Default: all types
+    - `voucherStatus` (array of strings, optional): Filter by voucher status ("unchecked", "open", "paid", "paidoff", "voided", "transferred", "sepadebit"). Default: all statuses
+    - `page` (number, optional): Page number to retrieve (starts at 0). Default: 0
+    - `size` (number, optional): Number of vouchers per page (1-250). Default: 250
+
+- **get-voucher-details**
+
+  - Get details of a bookkeeping voucher from Lexware Office
+  - Inputs:
+    - `id` (string): The UUID of the voucher
+
+- **get-file**
+
+  - Download a file (PDF or XML) from Lexware Office by file ID
+  - Inputs:
+    - `id` (string): The UUID of the file (from `files.documentFileId` in voucher or invoice details)
+    - `format` (string, optional): File format to download ("pdf" or "xml"). Default: "pdf". Note: XML (XRechnung) is only available for specific invoice types.
+
 - **list-posting-categories**
 
   - Retrieve list of posting categories for bookkeeping vouchers
