@@ -424,21 +424,30 @@ server.tool(
 		id: z.string().uuid().describe('The ID of the invoice or voucher to retrieve payment information for'),
 	},
 	async ({ id }) => {
-		const paymentsData = await makeLexwareOfficeRequest<any>(`/v1/payments?openItemId=${id}`);
+		const LEXOFFICE_API_BASE = 'https://api.lexoffice.io';
+		const LEXWARE_OFFICE_API_KEY = process.env.LEXWARE_OFFICE_API_KEY!;
+		const response = await fetch(`${LEXOFFICE_API_BASE}/v1/payments/${id}`, {
+			headers: {
+				Accept: 'application/json',
+				Authorization: `Bearer ${LEXWARE_OFFICE_API_KEY}`,
+			},
+		}).catch(() => null);
 
-		if (!paymentsData) {
+		if (!response) {
+			return { content: [{ type: 'text', text: 'Network error retrieving payment information' }] };
+		}
+
+		let body: unknown;
+		try { body = await response.json(); } catch { body = null; }
+
+		if (!response.ok) {
 			return {
-				content: [{ type: 'text', text: 'Failed to retrieve payment information' }],
+				content: [{ type: 'text', text: `API error ${response.status}: ${JSON.stringify(body)}` }],
 			};
 		}
 
 		return {
-			content: [
-				{
-					type: 'text',
-					text: `Payment information:\n\n${JSON.stringify(paymentsData, null, 2)}`,
-				},
-			],
+			content: [{ type: 'text', text: `Payment information:\n\n${JSON.stringify(body, null, 2)}` }],
 		};
 	},
 );
@@ -469,59 +478,31 @@ server.tool(
 
 server.tool(
 	'create-contact',
-	'Create a new contact (customer or vendor) in Lexware Office.',
+	'Create a new contact in Lexware Office. Provide companyName for a company contact, or firstName/lastName for a person. Set customer and/or vendor to true.',
 	{
-		roles: z
-			.object({
-				customer: z.object({}).optional().describe('Include to assign the customer role'),
-				vendor: z.object({}).optional().describe('Include to assign the vendor role'),
-			})
-			.optional(),
-		company: z
-			.object({
-				name: z.string(),
-				taxNumber: z.string().optional(),
-				vatRegistrationId: z.string().optional(),
-				contactPersons: z.array(contactPersonSchema).optional(),
-			})
-			.optional()
-			.describe('Company details — provide either company or person, not both'),
-		person: z
-			.object({
-				salutation: z.string().optional(),
-				firstName: z.string().optional(),
-				lastName: z.string(),
-			})
-			.optional()
-			.describe('Person details — provide either company or person, not both'),
-		addresses: z
-			.object({
-				billing: z.array(addressEntrySchema).optional(),
-				shipping: z.array(addressEntrySchema).optional(),
-			})
-			.optional(),
-		emailAddresses: z
-			.object({
-				business: z.array(z.string()).optional(),
-				office: z.array(z.string()).optional(),
-				private: z.array(z.string()).optional(),
-				other: z.array(z.string()).optional(),
-			})
-			.optional(),
-		phoneNumbers: z
-			.object({
-				business: z.array(z.string()).optional(),
-				office: z.array(z.string()).optional(),
-				mobile: z.array(z.string()).optional(),
-				private: z.array(z.string()).optional(),
-				fax: z.array(z.string()).optional(),
-				other: z.array(z.string()).optional(),
-			})
-			.optional(),
+		customer: z.string().optional().transform(v => v === 'true').describe('Set to "true" to assign the customer role'),
+		vendor: z.string().optional().transform(v => v === 'true').describe('Set to "true" to assign the vendor role'),
+		companyName: z.string().optional().describe('Company name — provide either companyName or lastName, not both'),
+		taxNumber: z.string().optional().describe('Tax number of the company'),
+		vatRegistrationId: z.string().optional().describe('VAT registration ID of the company'),
+		firstName: z.string().optional().describe('First name — for person contacts'),
+		lastName: z.string().optional().describe('Last name — for person contacts; required if companyName is not provided'),
+		salutation: z.string().optional().describe('Salutation for person contacts'),
 		note: z.string().optional(),
 	},
-	async (params) => {
-		const result = await makeLexwareOfficeWriteRequest<any>('/v1/contacts', 'POST', params);
+	async ({ customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/contacts', 'POST', {
+			version: 0,
+			roles: {
+				...(customer ? { customer: {} } : {}),
+				...(vendor ? { vendor: {} } : {}),
+			},
+			...(companyName
+				? { company: { name: companyName, ...(taxNumber ? { taxNumber } : {}), ...(vatRegistrationId ? { vatRegistrationId } : {}) } }
+				: {}),
+			...(lastName || firstName ? { person: { ...(salutation ? { salutation } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } } : {}),
+			...(note ? { note } : {}),
+		});
 
 		if (!result || !result.ok) {
 			return {
@@ -546,55 +527,33 @@ server.tool(
 	{
 		id: z.string().uuid().describe('The ID of the contact to update'),
 		version: z.number().int().describe('Current version of the contact (for optimistic locking)'),
-		roles: z
-			.object({
-				customer: z.object({}).optional(),
-				vendor: z.object({}).optional(),
-			})
-			.optional(),
-		company: z
-			.object({
-				name: z.string(),
-				taxNumber: z.string().optional(),
-				vatRegistrationId: z.string().optional(),
-				contactPersons: z.array(contactPersonSchema).optional(),
-			})
-			.optional(),
-		person: z
-			.object({
-				salutation: z.string().optional(),
-				firstName: z.string().optional(),
-				lastName: z.string(),
-			})
-			.optional(),
-		addresses: z
-			.object({
-				billing: z.array(addressEntrySchema).optional(),
-				shipping: z.array(addressEntrySchema).optional(),
-			})
-			.optional(),
-		emailAddresses: z
-			.object({
-				business: z.array(z.string()).optional(),
-				office: z.array(z.string()).optional(),
-				private: z.array(z.string()).optional(),
-				other: z.array(z.string()).optional(),
-			})
-			.optional(),
-		phoneNumbers: z
-			.object({
-				business: z.array(z.string()).optional(),
-				office: z.array(z.string()).optional(),
-				mobile: z.array(z.string()).optional(),
-				private: z.array(z.string()).optional(),
-				fax: z.array(z.string()).optional(),
-				other: z.array(z.string()).optional(),
-			})
-			.optional(),
+		customer: z.string().optional().transform(v => v === 'true').describe('Set to "true" to assign the customer role'),
+		vendor: z.string().optional().transform(v => v === 'true').describe('Set to "true" to assign the vendor role'),
+		companyName: z.string().optional().describe('Company name'),
+		taxNumber: z.string().optional().describe('Tax number of the company'),
+		vatRegistrationId: z.string().optional().describe('VAT registration ID of the company'),
+		firstName: z.string().optional().describe('First name — for person contacts'),
+		lastName: z.string().optional().describe('Last name — for person contacts'),
+		salutation: z.string().optional().describe('Salutation for person contacts'),
 		note: z.string().optional(),
 	},
-	async ({ id, ...body }) => {
-		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', body);
+	async ({ id, customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note, version }) => {
+		const apiRoles =
+			customer !== undefined || vendor !== undefined
+				? {
+						...(customer ? { customer: {} } : {}),
+						...(vendor ? { vendor: {} } : {}),
+					}
+				: undefined;
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', {
+			version,
+			...(apiRoles !== undefined ? { roles: apiRoles } : {}),
+			...(companyName
+				? { company: { name: companyName, ...(taxNumber ? { taxNumber } : {}), ...(vatRegistrationId ? { vatRegistrationId } : {}) } }
+				: {}),
+			...(lastName || firstName ? { person: { ...(salutation ? { salutation } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } } : {}),
+			...(note ? { note } : {}),
+		});
 
 		if (!result || !result.ok) {
 			return {
