@@ -1036,6 +1036,59 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-down-payment-invoice-details',
+	'Get details of a down payment invoice (Anzahlungsrechnung) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the down payment invoice'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/down-payment-invoices/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve down payment invoice data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Down payment invoice details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-profile',
+	'Get the company profile (Unternehmensprofil) from Lexware Office, including company name, address, tax settings, and contact information',
+	{},
+	async () => {
+		const data = await makeLexwareOfficeRequest<any>('/v1/profile');
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve profile data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Company profile:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'list-print-layouts',
+	'Retrieve available print layouts (Drucklayouts) from Lexware Office. Use these IDs when creating invoices or other documents to control the visual appearance.',
+	{},
+	async () => {
+		const data = await makeLexwareOfficeRequest<any>('/v1/print-layouts');
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve print layouts' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Print layouts:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
