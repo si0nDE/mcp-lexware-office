@@ -1089,6 +1089,73 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-recurring-templates',
+	'Get a list of recurring invoice templates (Wiederkehrende Vorlagen) from Lexware Office',
+	{
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ page, size }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/recurring-templates?page=${page}&size=${size}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve recurring templates' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Recurring templates:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-articles',
+	'Get a list of articles (Artikel/Produkte) from Lexware Office with optional filters',
+	{
+		articleNumber: z.string().optional().describe('Filter by article number (Artikelnummer)'),
+		name: z.string().optional().describe('Filter by article name (substring search)'),
+		type: z.enum(['PRODUCT', 'SERVICE']).optional().describe('Filter by article type'),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ articleNumber, name, type, page, size }) => {
+		const params = new URLSearchParams({ page: String(page), size: String(size) });
+		if (articleNumber) params.append('articleNumber', articleNumber);
+		if (name) params.append('name', name);
+		if (type) params.append('type', type);
+
+		const data = await makeLexwareOfficeRequest<any>(`/v1/articles?${params.toString()}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve articles' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Articles:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-article-details',
+	'Get details of an article (Artikel/Produkt) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the article'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/articles/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve article data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Article details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
