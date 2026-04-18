@@ -538,16 +538,18 @@ server.tool(
 		note: z.string().optional(),
 	},
 	async ({ id, customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note, version }) => {
-		const apiRoles =
-			customer !== undefined || vendor !== undefined
-				? {
-						...(customer ? { customer: {} } : {}),
-						...(vendor ? { vendor: {} } : {}),
-					}
-				: undefined;
+		if (!customer && !vendor) {
+			return {
+				content: [{ type: 'text', text: 'Error: Lexoffice requires at least one role. Set customer or vendor to "true".' }],
+			};
+		}
+		const apiRoles = {
+			...(customer ? { customer: {} } : {}),
+			...(vendor ? { vendor: {} } : {}),
+		};
 		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', {
 			version,
-			...(apiRoles !== undefined ? { roles: apiRoles } : {}),
+			roles: apiRoles,
 			...(companyName
 				? { company: { name: companyName, ...(taxNumber ? { taxNumber } : {}), ...(vatRegistrationId ? { vatRegistrationId } : {}) } }
 				: {}),
@@ -611,6 +613,13 @@ const invoiceSchema = {
 	taxConditions: z.object({
 		taxType: z.enum(['net', 'gross', 'vatfree']).describe('"net" = Netto, "gross" = Brutto, "vatfree" = steuerfrei'),
 	}),
+	shippingConditions: z.object({
+		shippingDate: z.string().describe('Service/delivery date in ISO 8601 format'),
+		shippingEndDate: z.string().optional().describe('End date for period types (serviceperiod/deliveryperiod)'),
+		shippingType: z
+			.enum(['service', 'delivery', 'serviceperiod', 'deliveryperiod'])
+			.describe('"service" = Leistungsdatum, "delivery" = Lieferdatum, "serviceperiod" = Leistungszeitraum, "deliveryperiod" = Lieferzeitraum'),
+	}).describe('Service/delivery conditions — required by Lexoffice API'),
 	paymentConditions: z
 		.object({
 			paymentTermLabelLanguage: z.enum(['de', 'en']).optional(),
@@ -678,6 +687,11 @@ const dunningSchema = {
 	taxConditions: z.object({
 		taxType: z.enum(['net', 'gross', 'vatfree']),
 	}),
+	shippingConditions: z.object({
+		shippingDate: z.string().describe('Service/delivery date in ISO 8601 format'),
+		shippingEndDate: z.string().optional(),
+		shippingType: z.enum(['service', 'delivery', 'serviceperiod', 'deliveryperiod']),
+	}).describe('Required by Lexoffice API'),
 	introduction: z.string().optional(),
 	remark: z.string().optional(),
 };
@@ -686,9 +700,14 @@ async function handleDunningRequest(
 	params: Record<string, unknown>,
 	finalize: boolean,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-	const path = finalize ? '/v1/dunnings?finalize=true' : '/v1/dunnings';
+	const { precedingSalesVoucherId, ...rest } = params;
+	const queryParams = new URLSearchParams({
+		precedingSalesVoucherId: precedingSalesVoucherId as string,
+		...(finalize ? { finalize: 'true' } : {}),
+	});
+	const path = `/v1/dunnings?${queryParams.toString()}`;
 	const body = {
-		...params,
+		...rest,
 		totalPrice: { currency: 'EUR' },
 	};
 	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
@@ -732,15 +751,18 @@ server.tool(
 				'Voucher type: purchaseinvoice (Eingangsrechnung), purchasecreditnote (Eingangsgutschrift), salesinvoice (Ausgangsrechnung), salescreditnote (Ausgangsgutschrift)',
 			),
 		voucherDate: z.string().describe('Voucher date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+		voucherNumber: z.string().optional().describe("The supplier's invoice number as printed on the document"),
 		dueDate: z.string().optional().describe('Due date in ISO 8601 format'),
-		supplierQuoteNumber: z.string().optional().describe('External invoice number from the supplier'),
 		contactId: z.string().uuid().optional().describe('Reference to an existing contact (Lieferant/Kunde)'),
 		remark: z.string().optional().describe('Internal note'),
+		taxType: z
+			.enum(['net', 'gross', 'vatfree'])
+			.describe('"net" = Netto, "gross" = Brutto, "vatfree" = steuerfrei'),
 		voucherItems: z
 			.array(
 				z.object({
-					amount: z.string().describe('Gross amount as string, e.g. "119.00"'),
-					taxAmount: z.string().describe('Tax amount as string, e.g. "19.00"'),
+					amount: z.number().describe('Gross amount, e.g. 119.00'),
+					taxAmount: z.number().describe('Tax amount, e.g. 19.00'),
 					taxRatePercent: z.number().describe('Tax rate: 0, 7, or 19'),
 					categoryId: z
 						.string()
@@ -751,7 +773,13 @@ server.tool(
 			.min(1),
 	},
 	async (params) => {
-		const result = await makeLexwareOfficeWriteRequest<any>('/v1/vouchers', 'POST', params);
+		const totalGrossAmount = params.voucherItems.reduce((sum, item) => sum + item.amount, 0);
+		const totalTaxAmount = params.voucherItems.reduce((sum, item) => sum + item.taxAmount, 0);
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/vouchers', 'POST', {
+			...params,
+			totalGrossAmount,
+			totalTaxAmount,
+		});
 
 		if (!result || !result.ok) {
 			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
@@ -776,15 +804,16 @@ server.tool(
 		version: z.number().int().describe('Current version of the voucher (for optimistic locking)'),
 		type: z.enum(['purchaseinvoice', 'purchasecreditnote', 'salesinvoice', 'salescreditnote']),
 		voucherDate: z.string().describe('Voucher date in ISO 8601 format'),
+		voucherNumber: z.string().optional().describe("The supplier's invoice number as printed on the document"),
 		dueDate: z.string().optional(),
-		supplierQuoteNumber: z.string().optional(),
 		contactId: z.string().uuid().optional(),
 		remark: z.string().optional(),
+		taxType: z.enum(['net', 'gross', 'vatfree']),
 		voucherItems: z
 			.array(
 				z.object({
-					amount: z.string().describe('Gross amount as string, e.g. "119.00"'),
-					taxAmount: z.string().describe('Tax amount as string, e.g. "19.00"'),
+					amount: z.number().describe('Gross amount, e.g. 119.00'),
+					taxAmount: z.number().describe('Tax amount, e.g. 19.00'),
 					taxRatePercent: z.number(),
 					categoryId: z.string().uuid(),
 				}),
@@ -792,7 +821,13 @@ server.tool(
 			.min(1),
 	},
 	async ({ id, ...body }) => {
-		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/vouchers/${id}`, 'PUT', body);
+		const totalGrossAmount = body.voucherItems.reduce((sum, item) => sum + item.amount, 0);
+		const totalTaxAmount = body.voucherItems.reduce((sum, item) => sum + item.taxAmount, 0);
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/vouchers/${id}`, 'PUT', {
+			...body,
+			totalGrossAmount,
+			totalTaxAmount,
+		});
 
 		if (!result || !result.ok) {
 			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
