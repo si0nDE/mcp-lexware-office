@@ -940,6 +940,102 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-order-confirmations',
+	'Get a list of order confirmations (Auftragsbestätigungen) from Lexware Office',
+	{
+		status: z
+			.array(z.enum(['draft', 'open', 'fulfilled', 'voided']))
+			.optional()
+			.default(['draft', 'open', 'fulfilled', 'voided']),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ status, page, size }) => {
+		const url = `/v1/voucherlist?voucherType=orderconfirmation&voucherStatus=${status.join(',')}&page=${page}&size=${size}`;
+		const data = await makeLexwareOfficeRequest<any>(url);
+		const vouchers = data?.content;
+
+		if (!vouchers || vouchers.length === 0) {
+			return { content: [{ type: 'text', text: 'No order confirmations found' }] };
+		}
+
+		return {
+			content: [{
+				type: 'text',
+				text: `There are ${data.totalElements} order confirmations in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`,
+			}],
+		};
+	},
+);
+
+server.tool(
+	'get-order-confirmation-details',
+	'Get details of an order confirmation (Auftragsbestätigung) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the order confirmation'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/order-confirmations/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve order confirmation data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Order confirmation details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-delivery-notes',
+	'Get a list of delivery notes (Lieferscheine) from Lexware Office',
+	{
+		status: z
+			.array(z.enum(['draft', 'open', 'fulfilled', 'voided']))
+			.optional()
+			.default(['draft', 'open', 'fulfilled', 'voided']),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ status, page, size }) => {
+		const url = `/v1/voucherlist?voucherType=deliverynote&voucherStatus=${status.join(',')}&page=${page}&size=${size}`;
+		const data = await makeLexwareOfficeRequest<any>(url);
+		const vouchers = data?.content;
+
+		if (!vouchers || vouchers.length === 0) {
+			return { content: [{ type: 'text', text: 'No delivery notes found' }] };
+		}
+
+		return {
+			content: [{
+				type: 'text',
+				text: `There are ${data.totalElements} delivery notes in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`,
+			}],
+		};
+	},
+);
+
+server.tool(
+	'get-delivery-note-details',
+	'Get details of a delivery note (Lieferschein) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the delivery note'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/delivery-notes/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve delivery note data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Delivery note details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
