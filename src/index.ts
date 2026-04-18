@@ -844,6 +844,54 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-quotations',
+	'Get a list of quotations (Angebote) from Lexware Office',
+	{
+		status: z
+			.array(z.enum(['draft', 'open', 'accepted', 'rejected', 'voided']))
+			.optional()
+			.default(['draft', 'open', 'accepted', 'rejected', 'voided']),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ status, page, size }) => {
+		const url = `/v1/voucherlist?voucherType=quotation&voucherStatus=${status.join(',')}&page=${page}&size=${size}`;
+		const data = await makeLexwareOfficeRequest<any>(url);
+		const vouchers = data?.content;
+
+		if (!vouchers || vouchers.length === 0) {
+			return { content: [{ type: 'text', text: 'No quotations found' }] };
+		}
+
+		return {
+			content: [{
+				type: 'text',
+				text: `There are ${data.totalElements} quotations in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`,
+			}],
+		};
+	},
+);
+
+server.tool(
+	'get-quotation-details',
+	'Get details of a quotation (Angebot) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the quotation'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/quotations/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve quotation data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Quotation details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
