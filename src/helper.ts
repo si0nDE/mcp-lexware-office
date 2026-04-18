@@ -7,7 +7,7 @@ if (!LEXWARE_OFFICE_API_KEY) {
 }
 
 const LEXOFFICE_API_BASE = 'https://api.lexoffice.io';
-const USER_AGENT = 'mcp-lexware-office/0.2.0';
+const USER_AGENT = 'mcp-lexware-office/0.3.0';
 
 export async function makeLexwareOfficeRequest<T>(path: string): Promise<T | null> {
 	const url = `${LEXOFFICE_API_BASE}${path}`;
@@ -61,6 +61,55 @@ export async function makeLexwareOfficeFileRequest(
 		return { data, mimeType };
 	} catch (error) {
 		logger.error('Error making Lexware Office file request', { error });
+		return null;
+	}
+}
+
+export type WriteResult<T> =
+	| { ok: true; data: T }
+	| { ok: false; status: number; error: unknown };
+
+export async function makeLexwareOfficeWriteRequest<T>(
+	path: string,
+	method: 'POST' | 'PUT',
+	body: unknown,
+): Promise<WriteResult<T> | null> {
+	const url = `${LEXOFFICE_API_BASE}${path}`;
+	const headers = {
+		'User-Agent': USER_AGENT,
+		'Content-Type': 'application/json',
+		Accept: 'application/json',
+		Authorization: `Bearer ${LEXWARE_OFFICE_API_KEY}`,
+	};
+
+	logger.log('Making Lexware Office write request', { url, method });
+
+	try {
+		const response = await fetch(url, {
+			method,
+			headers,
+			body: JSON.stringify(body),
+		});
+
+		let responseBody: unknown;
+		try {
+			responseBody = await response.json();
+		} catch {
+			responseBody = null;
+		}
+
+		if (!response.ok) {
+			logger.error('Lexware Office write request failed', {
+				status: response.status,
+				error: responseBody,
+			});
+			return { ok: false, status: response.status, error: responseBody };
+		}
+
+		logger.log('Lexware Office write response', { status: response.status });
+		return { ok: true, data: responseBody as T };
+	} catch (error) {
+		logger.error('Error making Lexware Office write request', { error });
 		return null;
 	}
 }
