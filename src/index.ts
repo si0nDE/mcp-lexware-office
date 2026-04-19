@@ -574,6 +574,25 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-contact-details',
+	'Get details of a single contact from Lexware Office by its ID. Returns full contact data including roles, address, and contact persons.',
+	{
+		id: z.string().uuid().describe('The ID of the contact'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/contacts/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve contact data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Contact details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 const lineItemSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.enum(['material', 'service', 'custom']),
