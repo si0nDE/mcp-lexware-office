@@ -1307,6 +1307,11 @@ const deliveryNoteSchema = {
 	voucherDate: z.string().describe('Delivery note date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
 	address: invoiceAddressSchema,
 	lineItems: z.array(deliveryNoteLineItemSchema).min(1),
+	taxConditions: z.object({
+		taxType: z
+			.enum(['net', 'gross', 'vatfree'])
+			.describe('"net" = Netto, "gross" = Brutto, "vatfree" = steuerfrei'),
+	}).describe('Tax conditions — required by Lexoffice API even for delivery notes'),
 	shippingConditions: z.object({
 		shippingDate: z.string().describe('Delivery date in ISO 8601 format'),
 		shippingEndDate: z.string().optional().describe('End date for period types'),
