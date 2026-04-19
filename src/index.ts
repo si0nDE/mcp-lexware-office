@@ -418,6 +418,37 @@ server.tool(
 );
 
 server.tool(
+	'get-document-file',
+	'Download the PDF file of a finalized document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) directly by its document ID. Use this instead of get-file when you have a document ID rather than a file ID.',
+	{
+		docType: z
+			.enum(['invoices', 'credit-notes', 'quotations', 'order-confirmations', 'delivery-notes', 'dunnings', 'down-payment-invoices'])
+			.describe('The type of document'),
+		id: z.string().uuid().describe('The ID of the document'),
+	},
+	async ({ docType, id }) => {
+		const fileData = await makeLexwareOfficeFileRequest(`/v1/${docType}/${id}/file`, 'application/pdf');
+
+		if (!fileData) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve document file. Ensure the document is finalized.' }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'resource',
+					resource: {
+						uri: `lexware://${docType}/${id}/file`,
+						mimeType: fileData.mimeType,
+						blob: fileData.data.toString('base64'),
+					},
+				},
+			],
+		};
+	},
+);
+
+server.tool(
 	'get-payments',
 	'Get payment information for an invoice or voucher from Lexware Office. Returns payment history including amounts, dates, and payment method.',
 	{
