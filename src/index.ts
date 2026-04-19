@@ -794,12 +794,12 @@ server.tool(
 
 server.tool(
 	'get-dunnings',
-	'Get a list of dunnings (Mahnungen) from Lexware Office via the voucherlist',
+	'Get a list of dunnings (Mahnungen) from Lexware Office via the voucherlist. Note: only dunnings with status "open" (sent to customer) appear here; draft dunnings that have not been sent are not listed.',
 	{
 		status: z
-			.array(z.enum(['draft', 'open', 'paidoff', 'voided']))
+			.array(z.enum(['draft', 'open']))
 			.optional()
-			.default(['draft', 'open', 'paidoff', 'voided']),
+			.default(['draft', 'open']),
 		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
 		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
 	},
