@@ -1250,6 +1250,46 @@ server.tool(
 	async (params) => handleCreditNoteRequest(params, true),
 );
 
+async function handleOrderConfirmationRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/order-confirmations?finalize=true' : '/v1/order-confirmations';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Order confirmation ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-order-confirmation',
+	'Create a new order confirmation (Auftragsbestätigung) as a draft in Lexware Office. Use finalize-order-confirmation to create and immediately finalize.',
+	invoiceSchema,
+	async (params) => handleOrderConfirmationRequest(params, false),
+);
+
+server.tool(
+	'finalize-order-confirmation',
+	'Create and immediately finalize an order confirmation (Auftragsbestätigung) in Lexware Office. The document will be locked and cannot be edited.',
+	invoiceSchema,
+	async (params) => handleOrderConfirmationRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
