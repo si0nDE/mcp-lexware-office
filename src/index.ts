@@ -1201,6 +1201,55 @@ server.tool(
 	async (params) => handleQuotationRequest(params, true),
 );
 
+const creditNoteSchema = {
+	...invoiceSchema,
+	precedingSalesVoucherId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe('ID of the original invoice this credit note refers to (optional)'),
+};
+
+async function handleCreditNoteRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/credit-notes?finalize=true' : '/v1/credit-notes';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Credit note ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-credit-note',
+	'Create a new credit note (Gutschrift) as a draft in Lexware Office. Use finalize-credit-note to create and immediately finalize.',
+	creditNoteSchema,
+	async (params) => handleCreditNoteRequest(params, false),
+);
+
+server.tool(
+	'finalize-credit-note',
+	'Create and immediately finalize a credit note (Gutschrift) in Lexware Office. The credit note will be locked and cannot be edited.',
+	creditNoteSchema,
+	async (params) => handleCreditNoteRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
