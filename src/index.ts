@@ -672,6 +672,7 @@ const invoiceSchema = {
 	}).describe('Service/delivery conditions — required by Lexoffice API'),
 	paymentConditions: z
 		.object({
+			paymentTermLabel: z.string().optional().describe('Payment term label text shown on the document, e.g. "Zahlungsbedingung: 7 Tage, bis zum 08.04.2026"'),
 			paymentTermLabelLanguage: z.enum(['de', 'en']).optional(),
 			paymentTermDuration: z.number().int().describe('Payment term in days'),
 			paymentDiscountConditions: z
