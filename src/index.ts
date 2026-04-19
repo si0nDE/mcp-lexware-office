@@ -1354,6 +1354,104 @@ server.tool(
 	async (params) => handleDeliveryNoteRequest(params, true),
 );
 
+const articleUnitPriceSchema = z.object({
+	currency: z.literal('EUR'),
+	netAmount: z.number().describe('Net price, e.g. 90.00'),
+	taxRatePercentage: z.number().describe('Tax rate, e.g. 19 for 19%'),
+	leadingUnit: z.string().optional().describe('Unit for price, e.g. "Stunden". Defaults to unitName if omitted.'),
+});
+
+server.tool(
+	'create-article',
+	'Create a new article (Artikel/Produkt) in Lexware Office. Articles can be reused when creating invoices, quotations, and other documents.',
+	{
+		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
+		name: z.string().describe('Article name'),
+		description: z.string().optional().describe('Article description'),
+		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
+		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
+		unitPrice: articleUnitPriceSchema.optional().describe('Selling price of the article'),
+	},
+	async ({ type, name, description, articleNumber, unitName, unitPrice }) => {
+		const body: Record<string, unknown> = { type, name };
+		if (description) body.description = description;
+		if (articleNumber) body.articleNumber = articleNumber;
+		if (unitName) body.unitName = unitName;
+		if (unitPrice) body.unitPrice = unitPrice;
+
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/articles', 'POST', body);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Article created successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'update-article',
+	'Update an existing article (Artikel/Produkt) in Lexware Office. Requires the current version number for optimistic locking (get it from get-article-details).',
+	{
+		id: z.string().uuid().describe('The ID of the article to update'),
+		version: z.number().int().describe('Current version of the article (for optimistic locking)'),
+		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
+		name: z.string().describe('Article name'),
+		description: z.string().optional().describe('Article description'),
+		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
+		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
+		unitPrice: articleUnitPriceSchema.optional().describe('Selling price of the article'),
+	},
+	async ({ id, version, type, name, description, articleNumber, unitName, unitPrice }) => {
+		const body: Record<string, unknown> = { version, type, name };
+		if (description) body.description = description;
+		if (articleNumber) body.articleNumber = articleNumber;
+		if (unitName) body.unitName = unitName;
+		if (unitPrice) body.unitPrice = unitPrice;
+
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/articles/${id}`, 'PUT', body);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Article updated successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'delete-article',
+	'Delete an article (Artikel/Produkt) from Lexware Office. This action is irreversible. To prevent accidental deletion, this tool can be blocked via denyTools in settings.json.',
+	{
+		id: z.string().uuid().describe('The ID of the article to delete'),
+	},
+	async ({ id }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/articles/${id}`, 'DELETE');
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Article ${id} deleted successfully.` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
