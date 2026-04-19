@@ -1156,6 +1156,51 @@ server.tool(
 	},
 );
 
+const quotationSchema = {
+	...invoiceSchema,
+	expirationDate: z.string().optional().describe('Expiration date of the quotation in ISO 8601 format, e.g. "2026-05-22T00:00:00.000+01:00"'),
+};
+
+async function handleQuotationRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/quotations?finalize=true' : '/v1/quotations';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Quotation ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-quotation',
+	'Create a new quotation (Angebot) as a draft in Lexware Office. The quotation will not be sent to the customer. Use finalize-quotation to create and immediately finalize.',
+	quotationSchema,
+	async (params) => handleQuotationRequest(params, false),
+);
+
+server.tool(
+	'finalize-quotation',
+	'Create and immediately finalize (publish) a quotation (Angebot) in Lexware Office. The quotation will be locked and cannot be edited. Use create-quotation to create a draft first.',
+	quotationSchema,
+	async (params) => handleQuotationRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
