@@ -71,8 +71,8 @@ export type WriteResult<T> =
 
 export async function makeLexwareOfficeWriteRequest<T>(
 	path: string,
-	method: 'POST' | 'PUT',
-	body: unknown,
+	method: 'POST' | 'PUT' | 'DELETE',
+	body?: unknown,
 ): Promise<WriteResult<T> | null> {
 	const url = `${LEXOFFICE_API_BASE}${path}`;
 	const headers = {
@@ -88,7 +88,7 @@ export async function makeLexwareOfficeWriteRequest<T>(
 		const response = await fetch(url, {
 			method,
 			headers,
-			body: JSON.stringify(body),
+			...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 		});
 
 		let responseBody: unknown;

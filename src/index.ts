@@ -31,7 +31,7 @@ function writeErrorResponse(result: { status: number; error: unknown } | null): 
 
 const server = new McpServer({
 	name: 'lexware-office',
-	version: '0.4.0',
+	version: '0.5.0',
 });
 
 server.tool(
@@ -1152,6 +1152,307 @@ server.tool(
 
 		return {
 			content: [{ type: 'text', text: `Article details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+const quotationSchema = {
+	...invoiceSchema,
+	expirationDate: z.string().optional().describe('Expiration date of the quotation in ISO 8601 format, e.g. "2026-05-22T00:00:00.000+01:00"'),
+};
+
+async function handleQuotationRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/quotations?finalize=true' : '/v1/quotations';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Quotation ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-quotation',
+	'Create a new quotation (Angebot) as a draft in Lexware Office. The quotation will not be sent to the customer. Use finalize-quotation to create and immediately finalize.',
+	quotationSchema,
+	async (params) => handleQuotationRequest(params, false),
+);
+
+server.tool(
+	'finalize-quotation',
+	'Create and immediately finalize (publish) a quotation (Angebot) in Lexware Office. The quotation will be locked and cannot be edited. Use create-quotation to create a draft first.',
+	quotationSchema,
+	async (params) => handleQuotationRequest(params, true),
+);
+
+const creditNoteSchema = {
+	...invoiceSchema,
+	precedingSalesVoucherId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe('ID of the original invoice this credit note refers to (optional)'),
+};
+
+async function handleCreditNoteRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/credit-notes?finalize=true' : '/v1/credit-notes';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Credit note ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-credit-note',
+	'Create a new credit note (Gutschrift) as a draft in Lexware Office. Use finalize-credit-note to create and immediately finalize.',
+	creditNoteSchema,
+	async (params) => handleCreditNoteRequest(params, false),
+);
+
+server.tool(
+	'finalize-credit-note',
+	'Create and immediately finalize a credit note (Gutschrift) in Lexware Office. The credit note will be locked and cannot be edited.',
+	creditNoteSchema,
+	async (params) => handleCreditNoteRequest(params, true),
+);
+
+async function handleOrderConfirmationRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/order-confirmations?finalize=true' : '/v1/order-confirmations';
+	const body = {
+		...params,
+		totalPrice: { currency: 'EUR' },
+	};
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', body);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Order confirmation ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-order-confirmation',
+	'Create a new order confirmation (Auftragsbestätigung) as a draft in Lexware Office. Use finalize-order-confirmation to create and immediately finalize.',
+	invoiceSchema,
+	async (params) => handleOrderConfirmationRequest(params, false),
+);
+
+server.tool(
+	'finalize-order-confirmation',
+	'Create and immediately finalize an order confirmation (Auftragsbestätigung) in Lexware Office. The document will be locked and cannot be edited.',
+	invoiceSchema,
+	async (params) => handleOrderConfirmationRequest(params, true),
+);
+
+const deliveryNoteLineItemSchema = z.discriminatedUnion('type', [
+	z.object({
+		type: z.enum(['material', 'service', 'custom']),
+		name: z.string().describe('Line item description'),
+		quantity: z.number().describe('Quantity'),
+		unitName: z.string().describe('Unit name, e.g. "Stück", "kg"'),
+	}),
+	z.object({
+		type: z.literal('text'),
+		name: z.string().describe('Free text line'),
+	}),
+]);
+
+const deliveryNoteSchema = {
+	voucherDate: z.string().describe('Delivery note date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+	address: invoiceAddressSchema,
+	lineItems: z.array(deliveryNoteLineItemSchema).min(1),
+	taxConditions: z.object({
+		taxType: z
+			.enum(['net', 'gross', 'vatfree'])
+			.describe('"net" = Netto, "gross" = Brutto, "vatfree" = steuerfrei'),
+	}).describe('Tax conditions — required by Lexoffice API even for delivery notes'),
+	shippingConditions: z.object({
+		shippingDate: z.string().describe('Delivery date in ISO 8601 format'),
+		shippingEndDate: z.string().optional().describe('End date for period types'),
+		shippingType: z
+			.enum(['service', 'delivery', 'serviceperiod', 'deliveryperiod'])
+			.describe('"delivery" = Lieferdatum, "deliveryperiod" = Lieferzeitraum'),
+	}).describe('Shipping/delivery conditions — required by Lexoffice API'),
+	introduction: z.string().optional().describe('Introductory text before line items'),
+	remark: z.string().optional().describe('Closing text after line items'),
+};
+
+async function handleDeliveryNoteRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/delivery-notes?finalize=true' : '/v1/delivery-notes';
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', params);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Delivery note ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-delivery-note',
+	'Create a new delivery note (Lieferschein) as a draft in Lexware Office. Delivery notes are logistics documents without pricing. Use finalize-delivery-note to create and immediately finalize.',
+	deliveryNoteSchema,
+	async (params) => handleDeliveryNoteRequest(params, false),
+);
+
+server.tool(
+	'finalize-delivery-note',
+	'Create and immediately finalize a delivery note (Lieferschein) in Lexware Office. The document will be locked and cannot be edited.',
+	deliveryNoteSchema,
+	async (params) => handleDeliveryNoteRequest(params, true),
+);
+
+const articlePriceSchema = z.object({
+	leadingPrice: z.enum(['NET', 'GROSS']).describe('"NET" to specify net price, "GROSS" to specify gross price'),
+	netPrice: z.number().optional().describe('Net price, e.g. 90.00 — required when leadingPrice is "NET"'),
+	grossPrice: z.number().optional().describe('Gross price incl. tax — required when leadingPrice is "GROSS"'),
+	taxRate: z.number().describe('Tax rate percentage, e.g. 19 for 19%, 7 for 7%, 0 for tax-free'),
+});
+
+server.tool(
+	'create-article',
+	'Create a new article (Artikel/Produkt) in Lexware Office. Articles can be reused when creating invoices, quotations, and other documents.',
+	{
+		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
+		title: z.string().describe('Article name/title'),
+		description: z.string().optional().describe('Article description'),
+		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
+		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
+		price: articlePriceSchema.optional().describe('Selling price of the article'),
+	},
+	async ({ type, title, description, articleNumber, unitName, price }) => {
+		const body: Record<string, unknown> = { type, title };
+		if (description) body.description = description;
+		if (articleNumber) body.articleNumber = articleNumber;
+		if (unitName) body.unitName = unitName;
+		if (price) body.price = price;
+
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/articles', 'POST', body);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Article created successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'update-article',
+	'Update an existing article (Artikel/Produkt) in Lexware Office. Requires the current version number for optimistic locking (get it from get-article-details).',
+	{
+		id: z.string().uuid().describe('The ID of the article to update'),
+		version: z.number().int().describe('Current version of the article (for optimistic locking)'),
+		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
+		title: z.string().describe('Article name/title'),
+		description: z.string().optional().describe('Article description'),
+		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
+		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
+		price: articlePriceSchema.optional().describe('Selling price of the article'),
+	},
+	async ({ id, version, type, title, description, articleNumber, unitName, price }) => {
+		const body: Record<string, unknown> = { version, type, title };
+		if (description) body.description = description;
+		if (articleNumber) body.articleNumber = articleNumber;
+		if (unitName) body.unitName = unitName;
+		if (price) body.price = price;
+
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/articles/${id}`, 'PUT', body);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Article updated successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+				},
+			],
+		};
+	},
+);
+
+server.tool(
+	'delete-article',
+	'Delete an article (Artikel/Produkt) from Lexware Office. This action is irreversible. To prevent accidental deletion, this tool can be blocked via denyTools in settings.json.',
+	{
+		id: z.string().uuid().describe('The ID of the article to delete'),
+	},
+	async ({ id }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/articles/${id}`, 'DELETE');
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Article ${id} deleted successfully.` }],
 		};
 	},
 );
