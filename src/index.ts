@@ -1354,11 +1354,11 @@ server.tool(
 	async (params) => handleDeliveryNoteRequest(params, true),
 );
 
-const articleUnitPriceSchema = z.object({
-	currency: z.literal('EUR'),
-	netAmount: z.number().describe('Net price, e.g. 90.00'),
-	taxRatePercentage: z.number().describe('Tax rate, e.g. 19 for 19%'),
-	leadingUnit: z.string().optional().describe('Unit for price, e.g. "Stunden". Defaults to unitName if omitted.'),
+const articlePriceSchema = z.object({
+	leadingPrice: z.enum(['NET', 'GROSS']).describe('"NET" to specify net price, "GROSS" to specify gross price'),
+	netPrice: z.number().optional().describe('Net price, e.g. 90.00 — required when leadingPrice is "NET"'),
+	grossPrice: z.number().optional().describe('Gross price incl. tax — required when leadingPrice is "GROSS"'),
+	taxRate: z.number().describe('Tax rate percentage, e.g. 19 for 19%, 7 for 7%, 0 for tax-free'),
 });
 
 server.tool(
@@ -1366,18 +1366,18 @@ server.tool(
 	'Create a new article (Artikel/Produkt) in Lexware Office. Articles can be reused when creating invoices, quotations, and other documents.',
 	{
 		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
-		name: z.string().describe('Article name'),
+		title: z.string().describe('Article name/title'),
 		description: z.string().optional().describe('Article description'),
 		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
 		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
-		unitPrice: articleUnitPriceSchema.optional().describe('Selling price of the article'),
+		price: articlePriceSchema.optional().describe('Selling price of the article'),
 	},
-	async ({ type, name, description, articleNumber, unitName, unitPrice }) => {
-		const body: Record<string, unknown> = { type, name };
+	async ({ type, title, description, articleNumber, unitName, price }) => {
+		const body: Record<string, unknown> = { type, title };
 		if (description) body.description = description;
 		if (articleNumber) body.articleNumber = articleNumber;
 		if (unitName) body.unitName = unitName;
-		if (unitPrice) body.unitPrice = unitPrice;
+		if (price) body.price = price;
 
 		const result = await makeLexwareOfficeWriteRequest<any>('/v1/articles', 'POST', body);
 
@@ -1403,18 +1403,18 @@ server.tool(
 		id: z.string().uuid().describe('The ID of the article to update'),
 		version: z.number().int().describe('Current version of the article (for optimistic locking)'),
 		type: z.enum(['PRODUCT', 'SERVICE']).describe('Article type: PRODUCT (Ware) or SERVICE (Dienstleistung)'),
-		name: z.string().describe('Article name'),
+		title: z.string().describe('Article name/title'),
 		description: z.string().optional().describe('Article description'),
 		articleNumber: z.string().optional().describe('Article number (Artikelnummer)'),
 		unitName: z.string().optional().describe('Unit name, e.g. "Stunden", "Stück"'),
-		unitPrice: articleUnitPriceSchema.optional().describe('Selling price of the article'),
+		price: articlePriceSchema.optional().describe('Selling price of the article'),
 	},
-	async ({ id, version, type, name, description, articleNumber, unitName, unitPrice }) => {
-		const body: Record<string, unknown> = { version, type, name };
+	async ({ id, version, type, title, description, articleNumber, unitName, price }) => {
+		const body: Record<string, unknown> = { version, type, title };
 		if (description) body.description = description;
 		if (articleNumber) body.articleNumber = articleNumber;
 		if (unitName) body.unitName = unitName;
-		if (unitPrice) body.unitPrice = unitPrice;
+		if (price) body.price = price;
 
 		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/articles/${id}`, 'PUT', body);
 
