@@ -1290,6 +1290,70 @@ server.tool(
 	async (params) => handleOrderConfirmationRequest(params, true),
 );
 
+const deliveryNoteLineItemSchema = z.discriminatedUnion('type', [
+	z.object({
+		type: z.enum(['material', 'service', 'custom']),
+		name: z.string().describe('Line item description'),
+		quantity: z.number().describe('Quantity'),
+		unitName: z.string().describe('Unit name, e.g. "Stück", "kg"'),
+	}),
+	z.object({
+		type: z.literal('text'),
+		name: z.string().describe('Free text line'),
+	}),
+]);
+
+const deliveryNoteSchema = {
+	voucherDate: z.string().describe('Delivery note date in ISO 8601 format, e.g. "2026-03-22T00:00:00.000+01:00"'),
+	address: invoiceAddressSchema,
+	lineItems: z.array(deliveryNoteLineItemSchema).min(1),
+	shippingConditions: z.object({
+		shippingDate: z.string().describe('Delivery date in ISO 8601 format'),
+		shippingEndDate: z.string().optional().describe('End date for period types'),
+		shippingType: z
+			.enum(['service', 'delivery', 'serviceperiod', 'deliveryperiod'])
+			.describe('"delivery" = Lieferdatum, "deliveryperiod" = Lieferzeitraum'),
+	}).describe('Shipping/delivery conditions — required by Lexoffice API'),
+	introduction: z.string().optional().describe('Introductory text before line items'),
+	remark: z.string().optional().describe('Closing text after line items'),
+};
+
+async function handleDeliveryNoteRequest(
+	params: Record<string, unknown>,
+	finalize: boolean,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+	const path = finalize ? '/v1/delivery-notes?finalize=true' : '/v1/delivery-notes';
+	const result = await makeLexwareOfficeWriteRequest<any>(path, 'POST', params);
+
+	if (!result || !result.ok) {
+		return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+	}
+
+	const action = finalize ? 'created and finalized' : 'created as draft';
+	return {
+		content: [
+			{
+				type: 'text',
+				text: `Delivery note ${action} successfully:\n\n${JSON.stringify(result.data, null, 2)}`,
+			},
+		],
+	};
+}
+
+server.tool(
+	'create-delivery-note',
+	'Create a new delivery note (Lieferschein) as a draft in Lexware Office. Delivery notes are logistics documents without pricing. Use finalize-delivery-note to create and immediately finalize.',
+	deliveryNoteSchema,
+	async (params) => handleDeliveryNoteRequest(params, false),
+);
+
+server.tool(
+	'finalize-delivery-note',
+	'Create and immediately finalize a delivery note (Lieferschein) in Lexware Office. The document will be locked and cannot be edited.',
+	deliveryNoteSchema,
+	async (params) => handleDeliveryNoteRequest(params, true),
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
