@@ -1555,6 +1555,99 @@ server.tool(
 	},
 );
 
+const EVENT_TYPES = [
+	'article.created', 'article.changed', 'article.deleted',
+	'contact.created', 'contact.changed', 'contact.deleted',
+	'credit-note.created', 'credit-note.changed', 'credit-note.deleted', 'credit-note.status.changed',
+	'delivery-note.created', 'delivery-note.changed', 'delivery-note.deleted', 'delivery-note.status.changed',
+	'down-payment-invoice.created', 'down-payment-invoice.changed', 'down-payment-invoice.deleted', 'down-payment-invoice.status.changed',
+	'dunning.created', 'dunning.changed', 'dunning.deleted',
+	'invoice.created', 'invoice.changed', 'invoice.deleted', 'invoice.status.changed',
+	'order-confirmation.created', 'order-confirmation.changed', 'order-confirmation.deleted', 'order-confirmation.status.changed',
+	'payment.changed',
+	'quotation.created', 'quotation.changed', 'quotation.deleted', 'quotation.status.changed',
+	'recurring-template.created', 'recurring-template.changed', 'recurring-template.deleted',
+	'voucher.created', 'voucher.changed', 'voucher.deleted', 'voucher.status.changed',
+] as const;
+
+server.tool(
+	'list-event-subscriptions',
+	'Retrieve all webhook event subscriptions from Lexware Office.',
+	{},
+	async () => {
+		const data = await makeLexwareOfficeRequest<any>('/v1/event-subscriptions');
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve event subscriptions' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscriptions:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-event-subscription',
+	'Retrieve a specific webhook event subscription from Lexware Office by its ID.',
+	{
+		id: z.string().uuid().describe('The ID of the event subscription'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/event-subscriptions/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve event subscription' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'create-event-subscription',
+	'Create a webhook event subscription in Lexware Office. Lexware will send a POST request to the callbackUrl whenever the specified event occurs.',
+	{
+		eventType: z.enum(EVENT_TYPES).describe('The event type to subscribe to'),
+		callbackUrl: z.string().url().describe('The webhook URL that will receive event notifications'),
+	},
+	async ({ eventType, callbackUrl }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/event-subscriptions', 'POST', {
+			eventType,
+			callbackUrl,
+		});
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription created successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'delete-event-subscription',
+	'Delete a webhook event subscription from Lexware Office by its ID.',
+	{
+		id: z.string().uuid().describe('The ID of the event subscription to delete'),
+	},
+	async ({ id }) => {
+		const result = await makeLexwareOfficeWriteRequest<void>(`/v1/event-subscriptions/${id}`, 'DELETE');
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription ${id} deleted successfully.` }],
+		};
+	},
+);
+
 async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
