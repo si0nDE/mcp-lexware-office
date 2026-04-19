@@ -113,3 +113,40 @@ export async function makeLexwareOfficeWriteRequest<T>(
 		return null;
 	}
 }
+
+export async function makeLexwareOfficeMultipartRequest<T>(
+	path: string,
+	formData: FormData,
+): Promise<WriteResult<T> | null> {
+	const url = `${LEXOFFICE_API_BASE}${path}`;
+	// Do NOT set Content-Type — fetch sets it automatically with the multipart boundary
+	const headers = {
+		'User-Agent': USER_AGENT,
+		Accept: 'application/json',
+		Authorization: `Bearer ${LEXWARE_OFFICE_API_KEY}`,
+	};
+
+	logger.log('Making Lexware Office multipart request', { url });
+
+	try {
+		const response = await fetch(url, { method: 'POST', headers, body: formData });
+
+		let responseBody: unknown;
+		try {
+			responseBody = await response.json();
+		} catch {
+			responseBody = null;
+		}
+
+		if (!response.ok) {
+			logger.error('Lexware Office multipart request failed', { status: response.status, error: responseBody });
+			return { ok: false, status: response.status, error: responseBody };
+		}
+
+		logger.log('Lexware Office multipart response', { status: response.status });
+		return { ok: true, data: responseBody as T };
+	} catch (error) {
+		logger.error('Error making Lexware Office multipart request', { error });
+		return null;
+	}
+}

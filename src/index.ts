@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest, makeLexwareOfficeWriteRequest } from './helper.js';
+import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest, makeLexwareOfficeWriteRequest, makeLexwareOfficeMultipartRequest } from './helper.js';
 import { logger } from './logger.js';
 
 const contactPersonSchema = z.object({
@@ -1644,6 +1644,64 @@ server.tool(
 
 		return {
 			content: [{ type: 'text', text: `Event subscription ${id} deleted successfully.` }],
+		};
+	},
+);
+
+server.tool(
+	'upload-file',
+	'Upload a file (PDF, JPG, PNG, or XML) to Lexware Office for bookkeeping purposes. Returns a file ID. Max file size: 5 MB. For XML (e-invoice), the "E-Rechnung" feature must be enabled in Lexware Office settings.',
+	{
+		fileContentBase64: z.string().describe('Base64-encoded file content'),
+		fileName: z.string().describe('File name including extension, e.g. "rechnung.pdf"'),
+		mimeType: z
+			.enum(['application/pdf', 'image/jpeg', 'image/png', 'application/xml'])
+			.describe('MIME type of the file'),
+	},
+	async ({ fileContentBase64, fileName, mimeType }) => {
+		const fileBuffer = Buffer.from(fileContentBase64, 'base64');
+		const blob = new Blob([fileBuffer], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+		formData.append('type', 'voucher');
+
+		const result = await makeLexwareOfficeMultipartRequest<any>('/v1/files', formData);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `File uploaded successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'upload-file-to-voucher',
+	'Upload and assign a file (PDF, JPG, PNG, or XML) directly to an existing voucher (Beleg) in Lexware Office. Use this to attach a receipt image or invoice PDF to a bookkeeping entry.',
+	{
+		voucherId: z.string().uuid().describe('The ID of the voucher to attach the file to'),
+		fileContentBase64: z.string().describe('Base64-encoded file content'),
+		fileName: z.string().describe('File name including extension, e.g. "beleg.pdf"'),
+		mimeType: z
+			.enum(['application/pdf', 'image/jpeg', 'image/png', 'application/xml'])
+			.describe('MIME type of the file'),
+	},
+	async ({ voucherId, fileContentBase64, fileName, mimeType }) => {
+		const fileBuffer = Buffer.from(fileContentBase64, 'base64');
+		const blob = new Blob([fileBuffer], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+
+		const result = await makeLexwareOfficeMultipartRequest<any>(`/v1/vouchers/${voucherId}/files`, formData);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `File uploaded to voucher ${voucherId} successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
 		};
 	},
 );
