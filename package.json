@@ -1,7 +1,7 @@
 {
 	"name": "mcp-lexware-office",
 	"description": "MCP server to interact with Lexware Office",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"license": "MIT",
 	"author": "Jannik Wempe <jannik@wempe.dev>",
 	"keywords": [
