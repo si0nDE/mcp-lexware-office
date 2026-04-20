@@ -780,14 +780,14 @@ async function handleDunningRequest(
 
 server.tool(
 	'create-dunning',
-	'Create a dunning notice (Mahnung) as a draft in Lexware Office for an existing invoice. Use finalize-dunning to create and immediately finalize.',
+	'Create a dunning notice (Mahnung) in Lexware Office for an existing invoice. Note: the Lexware Office API always returns voucherStatus "draft" for dunnings regardless of finalization — this is expected API behaviour. A PDF is generated immediately upon creation.',
 	dunningSchema,
 	async (params) => handleDunningRequest(params, false),
 );
 
 server.tool(
 	'finalize-dunning',
-	'Create and immediately finalize a dunning notice (Mahnung) in Lexware Office for an existing invoice. The dunning will be locked and cannot be edited.',
+	'Create a dunning notice (Mahnung) in Lexware Office for an existing invoice (alias for create-dunning). Note: the Lexware Office API always returns voucherStatus "draft" for dunnings — this is expected API behaviour, not an error. A PDF is generated immediately upon creation.',
 	dunningSchema,
 	async (params) => handleDunningRequest(params, true),
 );

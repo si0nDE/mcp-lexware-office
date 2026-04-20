@@ -4,6 +4,10 @@ import { apiGet } from './setup.js';
 // Note: The Lexware Office API does NOT support listing dunnings via the voucherlist
 // (voucherType=dunning is an invalid parameter — 400 Bad Request).
 // Dunnings can only be retrieved by ID via GET /v1/dunnings/{id}.
+//
+// Note: The Lexware Office API always returns voucherStatus "draft" for dunnings,
+// regardless of whether finalize=true was passed. PDFs are generated immediately.
+// This is expected API behaviour, not a bug.
 
 describe('dunnings', () => {
 	it('retrieves dunning details by a known ID', async () => {
