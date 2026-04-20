@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest, makeLexwareOfficeWriteRequest } from './helper.js';
+import { makeLexwareOfficeRequest, makeLexwareOfficeFileRequest, makeLexwareOfficeWriteRequest, makeLexwareOfficeMultipartRequest } from './helper.js';
 import { logger } from './logger.js';
 
 const contactPersonSchema = z.object({
@@ -31,7 +31,7 @@ function writeErrorResponse(result: { status: number; error: unknown } | null): 
 
 const server = new McpServer({
 	name: 'lexware-office',
-	version: '0.5.0',
+	version: '0.6.0',
 });
 
 server.tool(
@@ -418,6 +418,37 @@ server.tool(
 );
 
 server.tool(
+	'get-document-file',
+	'Download the PDF file of a finalized document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) directly by its document ID. Use this instead of get-file when you have a document ID rather than a file ID.',
+	{
+		docType: z
+			.enum(['invoices', 'credit-notes', 'quotations', 'order-confirmations', 'delivery-notes', 'dunnings', 'down-payment-invoices'])
+			.describe('The type of document'),
+		id: z.string().uuid().describe('The ID of the document'),
+	},
+	async ({ docType, id }) => {
+		const fileData = await makeLexwareOfficeFileRequest(`/v1/${docType}/${id}/file`, 'application/pdf');
+
+		if (!fileData) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve document file. Ensure the document is finalized.' }] };
+		}
+
+		return {
+			content: [
+				{
+					type: 'resource',
+					resource: {
+						uri: `lexware://${docType}/${id}/file`,
+						mimeType: fileData.mimeType,
+						blob: fileData.data.toString('base64'),
+					},
+				},
+			],
+		};
+	},
+);
+
+server.tool(
 	'get-payments',
 	'Get payment information for an invoice or voucher from Lexware Office. Returns payment history including amounts, dates, and payment method.',
 	{
@@ -574,6 +605,25 @@ server.tool(
 	},
 );
 
+server.tool(
+	'get-contact-details',
+	'Get details of a single contact from Lexware Office by its ID. Returns full contact data including roles, address, and contact persons.',
+	{
+		id: z.string().uuid().describe('The ID of the contact'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/contacts/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve contact data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Contact details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
 const lineItemSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.enum(['material', 'service', 'custom']),
@@ -622,6 +672,7 @@ const invoiceSchema = {
 	}).describe('Service/delivery conditions — required by Lexoffice API'),
 	paymentConditions: z
 		.object({
+			paymentTermLabel: z.string().optional().describe('Payment term label text shown on the document, e.g. "Zahlungsbedingung: 7 Tage, bis zum 08.04.2026"'),
 			paymentTermLabelLanguage: z.enum(['de', 'en']).optional(),
 			paymentTermDuration: z.number().int().describe('Payment term in days'),
 			paymentDiscountConditions: z
@@ -739,6 +790,54 @@ server.tool(
 	'Create and immediately finalize a dunning notice (Mahnung) in Lexware Office for an existing invoice. The dunning will be locked and cannot be edited.',
 	dunningSchema,
 	async (params) => handleDunningRequest(params, true),
+);
+
+server.tool(
+	'get-dunnings',
+	'Get a list of dunnings (Mahnungen) from Lexware Office via the voucherlist. Note: only dunnings with status "open" (sent to customer) appear here; draft dunnings that have not been sent are not listed.',
+	{
+		status: z
+			.array(z.enum(['draft', 'open']))
+			.optional()
+			.default(['draft', 'open']),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
+	},
+	async ({ status, page, size }) => {
+		const url = `/v1/voucherlist?voucherType=dunning&voucherStatus=${status.join(',')}&page=${page}&size=${size}`;
+		const data = await makeLexwareOfficeRequest<any>(url);
+		const vouchers = data?.content;
+
+		if (!vouchers || vouchers.length === 0) {
+			return { content: [{ type: 'text', text: 'No dunnings found' }] };
+		}
+
+		return {
+			content: [{
+				type: 'text',
+				text: `There are ${data.totalElements} dunnings in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`,
+			}],
+		};
+	},
+);
+
+server.tool(
+	'get-dunning-details',
+	'Get details of a dunning notice (Mahnung) from Lexware Office by its ID',
+	{
+		id: z.string().uuid().describe('The ID of the dunning'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/dunnings/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve dunning data' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Dunning details:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
 );
 
 server.tool(
@@ -1453,6 +1552,157 @@ server.tool(
 
 		return {
 			content: [{ type: 'text', text: `Article ${id} deleted successfully.` }],
+		};
+	},
+);
+
+const EVENT_TYPES = [
+	'article.created', 'article.changed', 'article.deleted',
+	'contact.created', 'contact.changed', 'contact.deleted',
+	'credit-note.created', 'credit-note.changed', 'credit-note.deleted', 'credit-note.status.changed',
+	'delivery-note.created', 'delivery-note.changed', 'delivery-note.deleted', 'delivery-note.status.changed',
+	'down-payment-invoice.created', 'down-payment-invoice.changed', 'down-payment-invoice.deleted', 'down-payment-invoice.status.changed',
+	'dunning.created', 'dunning.changed', 'dunning.deleted',
+	'invoice.created', 'invoice.changed', 'invoice.deleted', 'invoice.status.changed',
+	'order-confirmation.created', 'order-confirmation.changed', 'order-confirmation.deleted', 'order-confirmation.status.changed',
+	'payment.changed',
+	'quotation.created', 'quotation.changed', 'quotation.deleted', 'quotation.status.changed',
+	'recurring-template.created', 'recurring-template.changed', 'recurring-template.deleted',
+	'voucher.created', 'voucher.changed', 'voucher.deleted', 'voucher.status.changed',
+] as const;
+
+server.tool(
+	'list-event-subscriptions',
+	'Retrieve all webhook event subscriptions from Lexware Office.',
+	{},
+	async () => {
+		const data = await makeLexwareOfficeRequest<any>('/v1/event-subscriptions');
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve event subscriptions' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscriptions:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'get-event-subscription',
+	'Retrieve a specific webhook event subscription from Lexware Office by its ID.',
+	{
+		id: z.string().uuid().describe('The ID of the event subscription'),
+	},
+	async ({ id }) => {
+		const data = await makeLexwareOfficeRequest<any>(`/v1/event-subscriptions/${id}`);
+
+		if (!data) {
+			return { content: [{ type: 'text', text: 'Failed to retrieve event subscription' }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription:\n\n${JSON.stringify(data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'create-event-subscription',
+	'Create a webhook event subscription in Lexware Office. Lexware will send a POST request to the callbackUrl whenever the specified event occurs.',
+	{
+		eventType: z.enum(EVENT_TYPES).describe('The event type to subscribe to'),
+		callbackUrl: z.string().url().describe('The webhook URL that will receive event notifications'),
+	},
+	async ({ eventType, callbackUrl }) => {
+		const result = await makeLexwareOfficeWriteRequest<any>('/v1/event-subscriptions', 'POST', {
+			eventType,
+			callbackUrl,
+		});
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription created successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'delete-event-subscription',
+	'Delete a webhook event subscription from Lexware Office by its ID.',
+	{
+		id: z.string().uuid().describe('The ID of the event subscription to delete'),
+	},
+	async ({ id }) => {
+		const result = await makeLexwareOfficeWriteRequest<void>(`/v1/event-subscriptions/${id}`, 'DELETE');
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `Event subscription ${id} deleted successfully.` }],
+		};
+	},
+);
+
+server.tool(
+	'upload-file',
+	'Upload a file (PDF, JPG, PNG, or XML) to Lexware Office for bookkeeping purposes. Returns a file ID. Max file size: 5 MB. For XML (e-invoice), the "E-Rechnung" feature must be enabled in Lexware Office settings.',
+	{
+		fileContentBase64: z.string().describe('Base64-encoded file content'),
+		fileName: z.string().describe('File name including extension, e.g. "rechnung.pdf"'),
+		mimeType: z
+			.enum(['application/pdf', 'image/jpeg', 'image/png', 'application/xml'])
+			.describe('MIME type of the file'),
+	},
+	async ({ fileContentBase64, fileName, mimeType }) => {
+		const fileBuffer = Buffer.from(fileContentBase64, 'base64');
+		const blob = new Blob([fileBuffer], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+		formData.append('type', 'voucher');
+
+		const result = await makeLexwareOfficeMultipartRequest<any>('/v1/files', formData);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `File uploaded successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
+		};
+	},
+);
+
+server.tool(
+	'upload-file-to-voucher',
+	'Upload and assign a file (PDF, JPG, PNG, or XML) directly to an existing voucher (Beleg) in Lexware Office. Use this to attach a receipt image or invoice PDF to a bookkeeping entry.',
+	{
+		voucherId: z.string().uuid().describe('The ID of the voucher to attach the file to'),
+		fileContentBase64: z.string().describe('Base64-encoded file content'),
+		fileName: z.string().describe('File name including extension, e.g. "beleg.pdf"'),
+		mimeType: z
+			.enum(['application/pdf', 'image/jpeg', 'image/png', 'application/xml'])
+			.describe('MIME type of the file'),
+	},
+	async ({ voucherId, fileContentBase64, fileName, mimeType }) => {
+		const fileBuffer = Buffer.from(fileContentBase64, 'base64');
+		const blob = new Blob([fileBuffer], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+
+		const result = await makeLexwareOfficeMultipartRequest<any>(`/v1/vouchers/${voucherId}/files`, formData);
+
+		if (!result || !result.ok) {
+			return { content: [{ type: 'text', text: writeErrorResponse(result && !result.ok ? result : null) }] };
+		}
+
+		return {
+			content: [{ type: 'text', text: `File uploaded to voucher ${voucherId} successfully:\n\n${JSON.stringify(result.data, null, 2)}` }],
 		};
 	},
 );
