@@ -8,7 +8,9 @@ if (!API_KEY) throw new Error('LEXWARE_OFFICE_API_KEY is required. Copy .env.exa
 export const API_BASE = 'https://api.lexoffice.io';
 export const TEST_PREFIX = '[TEST]';
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<{ ok: boolean; status: number; data: T | null }> {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function request<T>(path: string, options: RequestInit = {}, retries = 3): Promise<{ ok: boolean; status: number; data: T | null }> {
 	const res = await fetch(`${API_BASE}${path}`, {
 		...options,
 		headers: {
@@ -19,6 +21,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<{ ok
 	});
 	let data: T | null = null;
 	try { data = await res.json() as T; } catch { /* 204 No Content etc */ }
+	if (res.status === 429 && retries > 0) {
+		await sleep(1500);
+		return request<T>(path, options, retries - 1);
+	}
 	return { ok: res.ok, status: res.status, data };
 }
 

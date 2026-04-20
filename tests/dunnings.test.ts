@@ -1,27 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { apiGet } from './setup.js';
 
-describe('dunnings', () => {
-	it('lists dunnings from voucherlist and returns paginated shape', async () => {
-		const data = await apiGet<{ content: unknown[]; totalElements: number }>(
-			'/v1/voucherlist?voucherType=dunning&voucherStatus=draft,open&page=0&size=10',
-		);
-		expect(data).toHaveProperty('content');
-		expect(Array.isArray(data.content)).toBe(true);
-		expect(typeof data.totalElements).toBe('number');
-	});
+// Note: The Lexware Office API does NOT support listing dunnings via the voucherlist
+// (voucherType=dunning is an invalid parameter — 400 Bad Request).
+// Dunnings can only be retrieved by ID via GET /v1/dunnings/{id}.
 
-	it('retrieves dunning details by ID if any exist', async () => {
-		const list = await apiGet<{ content: Array<{ id: string }> }>(
-			'/v1/voucherlist?voucherType=dunning&voucherStatus=draft,open&page=0&size=1',
-		);
-		if (list.content.length === 0) {
-			console.log('No dunnings found — skipping detail retrieval test');
-			return;
-		}
-		const id = list.content[0].id;
-		const data = await apiGet<{ id: string; voucherDate: string }>(`/v1/dunnings/${id}`);
+describe('dunnings', () => {
+	it('retrieves dunning details by a known ID', async () => {
+		// Test dunning created during Wave 3 integration testing
+		const id = 'c030635c-723c-48bc-a514-d22e3593e773';
+		const data = await apiGet<{
+			id: string;
+			voucherStatus: string;
+			voucherDate: string;
+			title: string;
+		}>(`/v1/dunnings/${id}`);
 		expect(data.id).toBe(id);
+		expect(data).toHaveProperty('voucherStatus');
 		expect(data).toHaveProperty('voucherDate');
+		expect(data.title).toBe('Mahnung');
 	});
 });
