@@ -19,7 +19,8 @@
 		"build"
 	],
 	"scripts": {
-		"build": "tsc && shx chmod +x build/*.js"
+		"build": "tsc && shx chmod +x build/*.js",
+		"test:integration": "vitest run"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.7.0",
@@ -27,8 +28,10 @@
 	},
 	"devDependencies": {
 		"@types/node": "^22.13.10",
+		"dotenv": "^17.4.2",
 		"shx": "^0.3.4",
-		"typescript": "^5.8.2"
+		"typescript": "^5.8.2",
+		"vitest": "^4.1.4"
 	},
 	"packageManager": "pnpm@10.6.3"
 }
