@@ -4,6 +4,9 @@
 	"version": "1.0.0",
 	"license": "MIT",
 	"author": "Jannik Wempe <jannik@wempe.dev>",
+	"contributors": [
+		"Simon Fieber <https://github.com/si0nDE>"
+	],
 	"keywords": [
 		"mcp",
 		"lexware-office",
