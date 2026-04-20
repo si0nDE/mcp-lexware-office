@@ -31,7 +31,7 @@ function writeErrorResponse(result: { status: number; error: unknown } | null): 
 
 const server = new McpServer({
 	name: 'lexware-office',
-	version: '0.6.0',
+	version: '1.0.0',
 });
 
 server.tool(
