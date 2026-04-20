@@ -31,7 +31,7 @@ function writeErrorResponse(result: { status: number; error: unknown } | null): 
 
 const server = new McpServer({
 	name: 'lexware-office',
-	version: '0.6.0',
+	version: '1.0.0',
 });
 
 server.tool(
@@ -794,28 +794,13 @@ server.tool(
 
 server.tool(
 	'get-dunnings',
-	'Get a list of dunnings (Mahnungen) from Lexware Office via the voucherlist. Note: only dunnings with status "open" (sent to customer) appear here; draft dunnings that have not been sent are not listed.',
-	{
-		status: z
-			.array(z.enum(['draft', 'open']))
-			.optional()
-			.default(['draft', 'open']),
-		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
-		size: z.number().min(1).max(250).optional().default(250).describe('number of results per page'),
-	},
-	async ({ status, page, size }) => {
-		const url = `/v1/voucherlist?voucherType=dunning&voucherStatus=${status.join(',')}&page=${page}&size=${size}`;
-		const data = await makeLexwareOfficeRequest<any>(url);
-		const vouchers = data?.content;
-
-		if (!vouchers || vouchers.length === 0) {
-			return { content: [{ type: 'text', text: 'No dunnings found' }] };
-		}
-
+	'Note: The Lexware Office API does not support listing dunnings. Use get-dunning-details with a known dunning ID instead. Dunning IDs can be found in the relatedVouchers field of an invoice (get-invoice-details).',
+	{},
+	async () => {
 		return {
 			content: [{
 				type: 'text',
-				text: `There are ${data.totalElements} dunnings in total (showing ${vouchers.length} on page ${page}):\n\n${JSON.stringify(vouchers, null, 2)}`,
+				text: 'The Lexware Office API does not support listing dunnings. To retrieve a dunning, use get-dunning-details with a known dunning ID. You can find dunning IDs in the relatedVouchers field of the associated invoice (use get-invoice-details).',
 			}],
 		};
 	},
