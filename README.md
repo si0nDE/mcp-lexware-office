@@ -4,7 +4,7 @@ An MCP server implementation that integrates with Lexware Office (formerly known
 
 ## Features
 
-- **Complete Lexware Office API coverage**: 53 tools covering all available Lexware Office API endpoints
+- **Broad Lexware Office API coverage**: 53 tools covering the available read/write workflows exposed by this server
 - **Full document lifecycle**: Create, finalize, and download PDFs for invoices, quotations, order confirmations, credit notes, delivery notes, and dunning notices
 - **Contact management**: Create, read, and update customers and vendors
 - **Bookkeeping**: Vouchers, posting categories, payments, and file uploads
@@ -55,7 +55,7 @@ An MCP server implementation that integrates with Lexware Office (formerly known
 ### Dunning Notices
 | Tool | Description | API |
 |---|---|---|
-| `get-dunnings` | Note: listing dunnings is not supported by the API — see tool description | — |
+| `get-dunnings` | Helper explaining that listing dunnings is not supported by the API | — |
 | `get-dunning-details` | Get details of a specific dunning notice | `GET /v1/dunnings/{id}` |
 | `create-dunning` | Create a dunning notice for an existing invoice | `POST /v1/dunnings` |
 | `finalize-dunning` | Alias for create-dunning (see note below) | `POST /v1/dunnings?finalize=true` |
@@ -97,9 +97,9 @@ An MCP server implementation that integrates with Lexware Office (formerly known
 | Tool | Description | API |
 |---|---|---|
 | `get-file` | Download a file (PDF or XML) by file ID | `GET /v1/files/{id}` |
-| `get-document-file` | Download the PDF of a document directly by document ID | `GET /v1/{docType}/{id}/file` |
+| `get-document-file` | Download the PDF of a document by document ID; may require a rendered PDF first | `GET /v1/{docType}/{id}/file` |
 | `upload-file` | Upload a file and receive a file ID | `POST /v1/files` |
-| `upload-file-to-voucher` | Upload a file and attach it to a voucher | `POST /v1/files` |
+| `upload-file-to-voucher` | Upload a file and attach it to a voucher | `POST /v1/vouchers/{id}/files` |
 
 ### Payments
 | Tool | Description | API |

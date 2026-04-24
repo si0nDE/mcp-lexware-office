@@ -419,7 +419,7 @@ server.tool(
 
 server.tool(
 	'get-document-file',
-	'Download the PDF file of a finalized document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) directly by its document ID. Use this instead of get-file when you have a document ID rather than a file ID.',
+	'Download the PDF file of a document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) by its document ID. Note: Lexware Office may reject this for documents whose PDF has not been rendered yet; in that case, use get-file with a known documentFileId.',
 	{
 		docType: z
 			.enum(['invoices', 'credit-notes', 'quotations', 'order-confirmations', 'delivery-notes', 'dunnings', 'down-payment-invoices'])
@@ -794,7 +794,7 @@ server.tool(
 
 server.tool(
 	'get-dunnings',
-	'Note: The Lexware Office API does not support listing dunnings. Use get-dunning-details with a known dunning ID instead. Dunning IDs can be found in the relatedVouchers field of an invoice (get-invoice-details).',
+	'Helper for an API limitation: Lexware Office does not support listing dunnings. Use get-dunning-details with a known dunning ID instead. Dunning IDs can be found in the relatedVouchers field of an invoice (get-invoice-details).',
 	{},
 	async () => {
 		return {
