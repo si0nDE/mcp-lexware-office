@@ -36,12 +36,17 @@ const server = new McpServer({
 
 server.tool(
 	'get-invoices',
-	'Get a list of invoices from Lexware Office',
+	'Get a list of natively created invoices from Lexware Office. IMPORTANT: This only returns invoices created directly in Lexware Office. Externally created invoices imported as bookkeeping entries (Ausgangsbelege) are NOT included here — use get-vouchers with voucherType=salesinvoice for those. For a complete picture of what a customer owes, use get-open-receivables instead.',
 	{
 		status: z
 			.array(z.enum(['open', 'draft', 'paid', 'paidoff', 'voided']))
 			.optional()
 			.default(['open', 'draft', 'paid', 'paidoff', 'voided']),
+		contactId: z
+			.string()
+			.uuid()
+			.optional()
+			.describe('Filter by contact ID — returns only invoices for this customer/vendor'),
 		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
 		size: z
 			.number()
@@ -51,8 +56,9 @@ server.tool(
 			.default(250)
 			.describe('number of invoices to retrieve per page'),
 	},
-	async ({ status }) => {
-		const voucherlistUrl = `/v1/voucherlist?voucherType=invoice&voucherStatus=${status.join(',')}`;
+	async ({ status, contactId }) => {
+		let voucherlistUrl = `/v1/voucherlist?voucherType=invoice&voucherStatus=${status.join(',')}`;
+		if (contactId) voucherlistUrl += `&contactId=${contactId}`;
 		const voucherlistData = await makeLexwareOfficeRequest<any>(voucherlistUrl);
 		const vouchers = voucherlistData.content;
 
@@ -288,7 +294,7 @@ server.tool(
 
 server.tool(
 	'get-vouchers',
-	'Get a list of bookkeeping vouchers (Eingangsbelege/Ausgangsbelege) from Lexware Office. Voucher types: purchaseinvoice (Ausgaben), purchasecreditnote (Ausgabenminderung), salesinvoice (Einnahmen), salescreditnote (Einnahmenminderung).',
+	'Get a list of bookkeeping vouchers (Eingangsbelege/Ausgangsbelege) from Lexware Office. These are invoices/receipts that were created externally and imported into Lexware Office for bookkeeping — NOT natively created invoices (use get-invoices for those). Voucher types: purchaseinvoice (Eingangsrechnung/Ausgaben), purchasecreditnote (Eingangsgutschrift), salesinvoice (Ausgangsrechnung/Einnahmen — externally created), salescreditnote (Ausgangsgutschrift). To find open customer receivables from externally created invoices, use voucherType=salesinvoice with voucherStatus=open. For a complete receivables picture across both sources, use get-open-receivables.',
 	{
 		voucherType: z
 			.array(
@@ -304,6 +310,11 @@ server.tool(
 			.optional()
 			.default(['unchecked', 'open', 'paid', 'paidoff', 'voided', 'transferred', 'sepadebit'])
 			.describe('Filter by voucher status'),
+		contactId: z
+			.string()
+			.uuid()
+			.optional()
+			.describe('Filter by contact ID — returns only vouchers for this customer/vendor'),
 		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
 		size: z
 			.number()
@@ -313,8 +324,9 @@ server.tool(
 			.default(250)
 			.describe('number of vouchers to retrieve per page'),
 	},
-	async ({ voucherType, voucherStatus, page, size }) => {
-		const voucherlistUrl = `/v1/voucherlist?voucherType=${voucherType.join(',')}&voucherStatus=${voucherStatus.join(',')}&page=${page}&size=${size}`;
+	async ({ voucherType, voucherStatus, contactId, page, size }) => {
+		let voucherlistUrl = `/v1/voucherlist?voucherType=${voucherType.join(',')}&voucherStatus=${voucherStatus.join(',')}&page=${page}&size=${size}`;
+		if (contactId) voucherlistUrl += `&contactId=${contactId}`;
 		const voucherlistData = await makeLexwareOfficeRequest<any>(voucherlistUrl);
 		const vouchers = voucherlistData?.content;
 
@@ -338,6 +350,59 @@ server.tool(
 					text: response,
 				},
 			],
+		};
+	},
+);
+
+server.tool(
+	'get-open-receivables',
+	'Get all open receivables (offene Forderungen) for a specific customer — combining both natively created invoices AND externally imported Ausgangsbelege (salesinvoice vouchers). Use this when asked: "How much does customer X owe?", "What invoices are open for customer Y?", "What is the outstanding balance for customer Z?". Returns a consolidated summary with total amount due.',
+	{
+		contactId: z.string().uuid().describe('The ID of the contact (customer) to check receivables for'),
+		page: z.number().min(0).optional().default(0).describe('page number to retrieve; starts at 0'),
+		size: z.number().min(1).max(250).optional().default(250).describe('number of records per page'),
+	},
+	async ({ contactId, page, size }) => {
+		const [invoicesData, vouchersData] = await Promise.all([
+			makeLexwareOfficeRequest<any>(
+				`/v1/voucherlist?voucherType=invoice&voucherStatus=open,draft&contactId=${contactId}&page=${page}&size=${size}`,
+			),
+			makeLexwareOfficeRequest<any>(
+				`/v1/voucherlist?voucherType=salesinvoice&voucherStatus=open,unchecked&contactId=${contactId}&page=${page}&size=${size}`,
+			),
+		]);
+
+		const nativeInvoices = invoicesData?.content ?? [];
+		const salesVouchers = vouchersData?.content ?? [];
+
+		if (nativeInvoices.length === 0 && salesVouchers.length === 0) {
+			return {
+				content: [{ type: 'text', text: 'No open receivables found for this contact.' }],
+			};
+		}
+
+		const totalNative = nativeInvoices.reduce((sum: number, v: any) => sum + (v.totalAmount ?? 0), 0);
+		const totalVouchers = salesVouchers.reduce((sum: number, v: any) => sum + (v.totalAmount ?? 0), 0);
+		const grandTotal = totalNative + totalVouchers;
+
+		const lines: string[] = [
+			`Open receivables for contact ${contactId}:`,
+			``,
+			`Native invoices (created in Lexware Office): ${nativeInvoices.length} — ${totalNative.toFixed(2)} €`,
+			`Ausgangsbelege (externally created, imported): ${salesVouchers.length} — ${totalVouchers.toFixed(2)} €`,
+			``,
+			`TOTAL OUTSTANDING: ${grandTotal.toFixed(2)} €`,
+		];
+
+		if (nativeInvoices.length > 0) {
+			lines.push(`\n--- Native Invoices ---\n${JSON.stringify(nativeInvoices, null, 2)}`);
+		}
+		if (salesVouchers.length > 0) {
+			lines.push(`\n--- Ausgangsbelege (salesinvoice vouchers) ---\n${JSON.stringify(salesVouchers, null, 2)}`);
+		}
+
+		return {
+			content: [{ type: 'text', text: lines.join('\n') }],
 		};
 	},
 );
@@ -419,7 +484,7 @@ server.tool(
 
 server.tool(
 	'get-document-file',
-	'Download the PDF file of a document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) by its document ID. Note: Lexware Office may reject this for documents whose PDF has not been rendered yet; in that case, use get-file with a known documentFileId.',
+	'Download the PDF file of a finalized document (invoice, quotation, credit note, order confirmation, delivery note, dunning, or down-payment invoice) directly by its document ID. Use this instead of get-file when you have a document ID rather than a file ID.',
 	{
 		docType: z
 			.enum(['invoices', 'credit-notes', 'quotations', 'order-confirmations', 'delivery-notes', 'dunnings', 'down-payment-invoices'])
@@ -794,7 +859,7 @@ server.tool(
 
 server.tool(
 	'get-dunnings',
-	'Helper for an API limitation: Lexware Office does not support listing dunnings. Use get-dunning-details with a known dunning ID instead. Dunning IDs can be found in the relatedVouchers field of an invoice (get-invoice-details).',
+	'Note: The Lexware Office API does not support listing dunnings. Use get-dunning-details with a known dunning ID instead. Dunning IDs can be found in the relatedVouchers field of an invoice (get-invoice-details).',
 	{},
 	async () => {
 		return {
