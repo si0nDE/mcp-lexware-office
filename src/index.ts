@@ -628,6 +628,7 @@ server.tool(
 		companyName: z.string().optional().describe('Company name'),
 		taxNumber: z.string().optional().describe('Tax number of the company'),
 		vatRegistrationId: z.string().optional().describe('VAT registration ID of the company'),
+		allowTaxFreeInvoices: z.boolean().optional().describe('Allow tax-free invoices for this company'),
 		firstName: z.string().optional().describe('First name — for person contacts'),
 		lastName: z.string().optional().describe('Last name — for person contacts'),
 		salutation: z.string().optional().describe('Salutation for person contacts'),
@@ -637,47 +638,144 @@ server.tool(
 		billingCity: z.string().optional().describe('City of the billing address'),
 		billingCountryCode: z.string().length(2).optional().describe('ISO 3166-1 alpha-2 country code, e.g. "DE"'),
 		billingSupplement: z.string().optional().describe('Optional address supplement (Adresszusatz)'),
+		shippingStreet: z.string().optional().describe('Street and house number of the shipping address'),
+		shippingZip: z.string().optional().describe('Postal code of the shipping address'),
+		shippingCity: z.string().optional().describe('City of the shipping address'),
+		shippingCountryCode: z.string().length(2).optional().describe('ISO 3166-1 alpha-2 country code, e.g. "DE"'),
+		shippingSupplement: z.string().optional().describe('Optional address supplement for shipping'),
+		emailBusiness: z.string().optional().describe('Business email address'),
+		emailOffice: z.string().optional().describe('Office email address'),
+		emailPrivate: z.string().optional().describe('Private email address'),
+		emailOther: z.string().optional().describe('Other email address'),
+		phoneBusiness: z.string().optional().describe('Business phone number'),
+		phoneOffice: z.string().optional().describe('Office phone number'),
+		phoneMobile: z.string().optional().describe('Mobile phone number'),
+		phonePrivate: z.string().optional().describe('Private phone number'),
+		phoneFax: z.string().optional().describe('Fax number'),
+		phoneOther: z.string().optional().describe('Other phone number'),
+		contactPersons: z
+			.array(
+				z.object({
+					salutation: z.string().optional(),
+					firstName: z.string().optional(),
+					lastName: z.string(),
+					primary: z.boolean().optional(),
+					emailAddress: z.string().optional(),
+					phoneNumber: z.string().optional(),
+				}),
+			)
+			.optional()
+			.describe('List of contact persons for company contacts. Replaces all existing contact persons.'),
 	},
-	async ({ id, customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note, version, billingStreet, billingZip, billingCity, billingCountryCode, billingSupplement }) => {
+	async ({
+		id, customer, vendor, companyName, taxNumber, vatRegistrationId, allowTaxFreeInvoices,
+		firstName, lastName, salutation, note, version,
+		billingStreet, billingZip, billingCity, billingCountryCode, billingSupplement,
+		shippingStreet, shippingZip, shippingCity, shippingCountryCode, shippingSupplement,
+		emailBusiness, emailOffice, emailPrivate, emailOther,
+		phoneBusiness, phoneOffice, phoneMobile, phonePrivate, phoneFax, phoneOther,
+		contactPersons,
+	}) => {
 		if (!customer && !vendor) {
 			return {
 				content: [{ type: 'text', text: 'Error: Lexoffice requires at least one role. Set customer or vendor to "true".' }],
 			};
 		}
+
+		const existing = await makeLexwareOfficeRequest<any>(`/v1/contacts/${id}`);
+		if (!existing) {
+			return { content: [{ type: 'text', text: 'Failed to fetch existing contact data' }] };
+		}
+
+		const existingRoles: Record<string, any> = existing.roles ?? {};
 		const apiRoles = {
-			...(customer ? { customer: {} } : {}),
-			...(vendor ? { vendor: {} } : {}),
+			...(customer ? { customer: existingRoles.customer ?? {} } : {}),
+			...(vendor ? { vendor: existingRoles.vendor ?? {} } : {}),
 		};
 
-		const hasBillingFields = billingStreet || billingZip || billingCity || billingCountryCode || billingSupplement;
-		let addressesPayload: Record<string, any> | undefined;
-		if (hasBillingFields) {
-			const existing = await makeLexwareOfficeRequest<any>(`/v1/contacts/${id}`);
-			const existingBilling: Record<string, any> = existing?.addresses?.billing?.[0] ?? {};
-			const billingAddress: Record<string, any> = {
-				...(existingBilling.supplement !== undefined ? { supplement: existingBilling.supplement } : {}),
-				...(existingBilling.street !== undefined ? { street: existingBilling.street } : {}),
-				...(existingBilling.zip !== undefined ? { zip: existingBilling.zip } : {}),
-				...(existingBilling.city !== undefined ? { city: existingBilling.city } : {}),
-				countryCode: existingBilling.countryCode ?? 'DE',
+		// Addresses — preserve existing, merge new fields
+		const hasBillingFields = billingStreet !== undefined || billingZip !== undefined || billingCity !== undefined || billingCountryCode !== undefined || billingSupplement !== undefined;
+		const hasShippingFields = shippingStreet !== undefined || shippingZip !== undefined || shippingCity !== undefined || shippingCountryCode !== undefined || shippingSupplement !== undefined;
+		const existingBillingArr: Record<string, any>[] = existing.addresses?.billing ?? [];
+		const existingShippingArr: Record<string, any>[] = existing.addresses?.shipping ?? [];
+		const billingArray: Record<string, any>[] = hasBillingFields
+			? [{
+				...(existingBillingArr[0] ?? {}),
 				...(billingSupplement !== undefined ? { supplement: billingSupplement } : {}),
 				...(billingStreet !== undefined ? { street: billingStreet } : {}),
 				...(billingZip !== undefined ? { zip: billingZip } : {}),
 				...(billingCity !== undefined ? { city: billingCity } : {}),
 				...(billingCountryCode !== undefined ? { countryCode: billingCountryCode } : {}),
-			};
-			addressesPayload = { billing: [billingAddress], shipping: existing?.addresses?.shipping ?? [] };
-		}
+			}]
+			: existingBillingArr;
+		const shippingArray: Record<string, any>[] = hasShippingFields
+			? [{
+				...(existingShippingArr[0] ?? {}),
+				...(shippingSupplement !== undefined ? { supplement: shippingSupplement } : {}),
+				...(shippingStreet !== undefined ? { street: shippingStreet } : {}),
+				...(shippingZip !== undefined ? { zip: shippingZip } : {}),
+				...(shippingCity !== undefined ? { city: shippingCity } : {}),
+				...(shippingCountryCode !== undefined ? { countryCode: shippingCountryCode } : {}),
+			}]
+			: existingShippingArr;
+
+		// Emails — preserve existing arrays, override specified keys
+		const existingEmails: Record<string, any> = existing.emailAddresses ?? {};
+		const emailAddressesPayload: Record<string, any> = {
+			...existingEmails,
+			...(emailBusiness !== undefined ? { business: [emailBusiness] } : {}),
+			...(emailOffice !== undefined ? { office: [emailOffice] } : {}),
+			...(emailPrivate !== undefined ? { private: [emailPrivate] } : {}),
+			...(emailOther !== undefined ? { other: [emailOther] } : {}),
+		};
+
+		// Phones — preserve existing arrays, override specified keys
+		const existingPhones: Record<string, any> = existing.phoneNumbers ?? {};
+		const phoneNumbersPayload: Record<string, any> = {
+			...existingPhones,
+			...(phoneBusiness !== undefined ? { business: [phoneBusiness] } : {}),
+			...(phoneOffice !== undefined ? { office: [phoneOffice] } : {}),
+			...(phoneMobile !== undefined ? { mobile: [phoneMobile] } : {}),
+			...(phonePrivate !== undefined ? { private: [phonePrivate] } : {}),
+			...(phoneFax !== undefined ? { fax: [phoneFax] } : {}),
+			...(phoneOther !== undefined ? { other: [phoneOther] } : {}),
+		};
+
+		// Company — preserve existing fields, merge updates
+		const existingCompany: Record<string, any> = existing.company ?? {};
+		const companyPayload: Record<string, any> | undefined =
+			companyName !== undefined || existing.company
+				? {
+					...existingCompany,
+					...(companyName !== undefined ? { name: companyName } : {}),
+					...(taxNumber !== undefined ? { taxNumber } : {}),
+					...(vatRegistrationId !== undefined ? { vatRegistrationId } : {}),
+					...(allowTaxFreeInvoices !== undefined ? { allowTaxFreeInvoices } : {}),
+					...(contactPersons !== undefined ? { contactPersons } : {}),
+				}
+				: undefined;
+
+		// Person — preserve existing fields, merge updates
+		const existingPerson: Record<string, any> = existing.person ?? {};
+		const personPayload: Record<string, any> | undefined =
+			firstName !== undefined || lastName !== undefined || salutation !== undefined || existing.person
+				? {
+					...existingPerson,
+					...(salutation !== undefined ? { salutation } : {}),
+					...(firstName !== undefined ? { firstName } : {}),
+					...(lastName !== undefined ? { lastName } : {}),
+				}
+				: undefined;
 
 		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', {
 			version,
 			roles: apiRoles,
-			...(companyName
-				? { company: { name: companyName, ...(taxNumber ? { taxNumber } : {}), ...(vatRegistrationId ? { vatRegistrationId } : {}) } }
-				: {}),
-			...(lastName || firstName ? { person: { ...(salutation ? { salutation } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } } : {}),
-			...(note ? { note } : {}),
-			...(addressesPayload ? { addresses: addressesPayload } : {}),
+			...(companyPayload ? { company: companyPayload } : {}),
+			...(personPayload ? { person: personPayload } : {}),
+			...(note !== undefined ? { note } : (existing.note !== undefined ? { note: existing.note } : {})),
+			addresses: { billing: billingArray, shipping: shippingArray },
+			...(Object.keys(emailAddressesPayload).length > 0 ? { emailAddresses: emailAddressesPayload } : {}),
+			...(Object.keys(phoneNumbersPayload).length > 0 ? { phoneNumbers: phoneNumbersPayload } : {}),
 		});
 
 		if (!result || !result.ok) {
