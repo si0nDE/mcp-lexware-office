@@ -619,7 +619,7 @@ server.tool(
 
 server.tool(
 	'update-contact',
-	'Update an existing contact in Lexware Office. Requires the current version number for optimistic locking (get it from get-contacts).',
+	'Update an existing contact in Lexware Office. Requires the current version number for optimistic locking (get it from get-contacts). Note: The Lexware API only supports contacts with at most one billing and one shipping address.',
 	{
 		id: z.string().uuid().describe('The ID of the contact to update'),
 		version: z.number().int().describe('Current version of the contact (for optimistic locking)'),
@@ -632,8 +632,13 @@ server.tool(
 		lastName: z.string().optional().describe('Last name — for person contacts'),
 		salutation: z.string().optional().describe('Salutation for person contacts'),
 		note: z.string().optional(),
+		billingStreet: z.string().optional().describe('Street and house number of the billing address'),
+		billingZip: z.string().optional().describe('Postal code of the billing address'),
+		billingCity: z.string().optional().describe('City of the billing address'),
+		billingCountryCode: z.string().length(2).optional().describe('ISO 3166-1 alpha-2 country code, e.g. "DE"'),
+		billingSupplement: z.string().optional().describe('Optional address supplement (Adresszusatz)'),
 	},
-	async ({ id, customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note, version }) => {
+	async ({ id, customer, vendor, companyName, taxNumber, vatRegistrationId, firstName, lastName, salutation, note, version, billingStreet, billingZip, billingCity, billingCountryCode, billingSupplement }) => {
 		if (!customer && !vendor) {
 			return {
 				content: [{ type: 'text', text: 'Error: Lexoffice requires at least one role. Set customer or vendor to "true".' }],
@@ -643,6 +648,27 @@ server.tool(
 			...(customer ? { customer: {} } : {}),
 			...(vendor ? { vendor: {} } : {}),
 		};
+
+		const hasBillingFields = billingStreet || billingZip || billingCity || billingCountryCode || billingSupplement;
+		let addressesPayload: Record<string, any> | undefined;
+		if (hasBillingFields) {
+			const existing = await makeLexwareOfficeRequest<any>(`/v1/contacts/${id}`);
+			const existingBilling: Record<string, any> = existing?.addresses?.billing?.[0] ?? {};
+			const billingAddress: Record<string, any> = {
+				...(existingBilling.supplement !== undefined ? { supplement: existingBilling.supplement } : {}),
+				...(existingBilling.street !== undefined ? { street: existingBilling.street } : {}),
+				...(existingBilling.zip !== undefined ? { zip: existingBilling.zip } : {}),
+				...(existingBilling.city !== undefined ? { city: existingBilling.city } : {}),
+				countryCode: existingBilling.countryCode ?? 'DE',
+				...(billingSupplement !== undefined ? { supplement: billingSupplement } : {}),
+				...(billingStreet !== undefined ? { street: billingStreet } : {}),
+				...(billingZip !== undefined ? { zip: billingZip } : {}),
+				...(billingCity !== undefined ? { city: billingCity } : {}),
+				...(billingCountryCode !== undefined ? { countryCode: billingCountryCode } : {}),
+			};
+			addressesPayload = { billing: [billingAddress], shipping: existing?.addresses?.shipping ?? [] };
+		}
+
 		const result = await makeLexwareOfficeWriteRequest<any>(`/v1/contacts/${id}`, 'PUT', {
 			version,
 			roles: apiRoles,
@@ -651,6 +677,7 @@ server.tool(
 				: {}),
 			...(lastName || firstName ? { person: { ...(salutation ? { salutation } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } } : {}),
 			...(note ? { note } : {}),
+			...(addressesPayload ? { addresses: addressesPayload } : {}),
 		});
 
 		if (!result || !result.ok) {
