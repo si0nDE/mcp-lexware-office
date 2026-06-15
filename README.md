@@ -38,6 +38,7 @@ The v1 server exposes one MCP tool per common Lexware workflow. This is easy to 
 - `create-voucher`
 - `finalize-invoice`
 - `upload-file-to-voucher`
+- `duplicate-voucher`
 
 See the full v1 tool list in [docs/version-guide.md#v1-tool-surface](docs/version-guide.md#v1-tool-surface).
 
